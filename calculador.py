@@ -65,7 +65,6 @@ def load_meta_filtered(dist, ano, mes):
     df_meta_kg = pd.read_sql(query_kg, engine)
     df_meta_rs = pd.read_sql(query_rs, engine)
 
-    # Preencher distribuidores ausentes com zero
     for d in dist_upper:
         if d not in df_meta_kg['nome_distribuidor'].tolist():
             df_meta_kg = pd.concat(
@@ -222,13 +221,12 @@ def main():
                 "Mês de análise",
                 meses,
                 format_func=lambda x: f"{x:02d}",
-                index=datetime.now().month-1
+                index=datetime.now().month - 1
             ) if meses else None
             prod_selecionados = st.multiselect("Produtos (código)", produtos, help="Selecione produtos")
 
             st.markdown("---")
             st.subheader("⚙️ Configuração de Comissões")
-            # Permitir 3 casas decimais
             pct1 = st.number_input("% Até volume do ano anterior", value=2.000, format="%.3f", step=0.001)
             pct2 = st.number_input("% Volume entre ano anterior e meta", value=4.000, format="%.3f", step=0.001)
             pct3 = st.number_input("% Acima da meta", value=6.000, format="%.3f", step=0.001)
@@ -439,10 +437,10 @@ def main():
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
@@ -543,36 +541,47 @@ def main():
                     st.altair_chart(chart_annual, use_container_width=True)
 
                     # -------------------------------------------------------
-                    # Tabelas de Valor por KG por Distribuidor (resumido)
+                    # Tabelas de Valor por KG para cada alíquota (por SKU por Distribuidor)
                     # -------------------------------------------------------
                     st.markdown("---")
-                    st.markdown("**Valor de Comissão por KG (Resumo por Distribuidor)**")
+                    st.markdown("**Valor de Comissão por KG de cada SKU**")
 
-                    # Usar totais_merge para recuperar Preco_Medio_Kg por distribuidor
-                    df_resumo_rate = totais_merge[['Distribuidor', 'Preco_Medio_Kg']].copy()
-                    df_resumo_rate['Valor_por_Kg_T1'] = df_resumo_rate['Preco_Medio_Kg'] * (pct1 / 100)
-                    df_resumo_rate['Valor_por_Kg_T2'] = df_resumo_rate['Preco_Medio_Kg'] * (pct2 / 100)
-                    df_resumo_rate['Valor_por_Kg_T3'] = df_resumo_rate['Preco_Medio_Kg'] * (pct3 / 100)
+                    df_rate = df_merge[['nome_distribuidor', 'codigo_produto', 'Preco_Kg_Mes']].copy()
+                    df_rate['Valor_por_Kg_T1'] = df_rate['Preco_Kg_Mes'] * (pct1 / 100)
+                    df_rate['Valor_por_Kg_T2'] = df_rate['Preco_Kg_Mes'] * (pct2 / 100)
+                    df_rate['Valor_por_Kg_T3'] = df_rate['Preco_Kg_Mes'] * (pct3 / 100)
 
-                    # Tabela para T1
+                    # Tabela para T1 (por SKU por Distribuidor)
                     st.subheader(f"Tabela - Valor por KG (Até ano anterior) ({pct1:.3f}%)")
-                    df_t1 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T1']].copy()
-                    df_t1.rename(columns={'Valor_por_Kg_T1': f'Valor R$/Kg T1 ({pct1:.3f}%)'}, inplace=True)
-                    df_t1[f'Valor R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'Valor R$/Kg T1 ({pct1:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                    df_t1 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T1']].copy()
+                    df_t1.rename(columns={
+                        'nome_distribuidor': 'Distribuidor',
+                        'codigo_produto': 'SKU',
+                        'Valor_por_Kg_T1': f'R$/Kg T1 ({pct1:.3f}%)'
+                    }, inplace=True)
+                    df_t1[f'R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'R$/Kg T1 ({pct1:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
                     st.dataframe(df_t1, use_container_width=True)
 
-                    # Tabela para T2
+                    # Tabela para T2 (por SKU por Distribuidor)
                     st.subheader(f"Tabela - Valor por KG (Entre ano anterior e meta) ({pct2:.3f}%)")
-                    df_t2 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T2']].copy()
-                    df_t2.rename(columns={'Valor_por_Kg_T2': f'Valor R$/Kg T2 ({pct2:.3f}%)'}, inplace=True)
-                    df_t2[f'Valor R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'Valor R$/Kg T2 ({pct2:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                    df_t2 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T2']].copy()
+                    df_t2.rename(columns={
+                        'nome_distribuidor': 'Distribuidor',
+                        'codigo_produto': 'SKU',
+                        'Valor_por_Kg_T2': f'R$/Kg T2 ({pct2:.3f}%)'
+                    }, inplace=True)
+                    df_t2[f'R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'R$/Kg T2 ({pct2:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
                     st.dataframe(df_t2, use_container_width=True)
 
-                    # Tabela para T3
+                    # Tabela para T3 (por SKU por Distribuidor)
                     st.subheader(f"Tabela - Valor por KG (Acima da meta) ({pct3:.3f}%)")
-                    df_t3 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T3']].copy()
-                    df_t3.rename(columns={'Valor_por_Kg_T3': f'Valor R$/Kg T3 ({pct3:.3f}%)'}, inplace=True)
-                    df_t3[f'Valor R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'Valor R$/Kg T3 ({pct3:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                    df_t3 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T3']].copy()
+                    df_t3.rename(columns={
+                        'nome_distribuidor': 'Distribuidor',
+                        'codigo_produto': 'SKU',
+                        'Valor_por_Kg_T3': f'R$/Kg T3 ({pct3:.3f}%)'
+                    }, inplace=True)
+                    df_t3[f'R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'R$/Kg T3 ({pct3:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
                     st.dataframe(df_t3, use_container_width=True)
 
         else:
