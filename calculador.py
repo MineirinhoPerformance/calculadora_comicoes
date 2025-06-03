@@ -65,6 +65,7 @@ def load_meta_filtered(dist, ano, mes):
     df_meta_kg = pd.read_sql(query_kg, engine)
     df_meta_rs = pd.read_sql(query_rs, engine)
 
+    # Preencher distribuidores ausentes com zero
     for d in dist_upper:
         if d not in df_meta_kg['nome_distribuidor'].tolist():
             df_meta_kg = pd.concat(
@@ -224,14 +225,15 @@ def main():
                 index=datetime.now().month-1
             ) if meses else None
             prod_selecionados = st.multiselect("Produtos (código)", produtos, help="Selecione produtos")
-            
+
             st.markdown("---")
             st.subheader("⚙️ Configuração de Comissões")
+            # Permitir 3 casas decimais
             pct1 = st.number_input("% Até volume do ano anterior", value=2.000, format="%.3f", step=0.001)
             pct2 = st.number_input("% Volume entre ano anterior e meta", value=4.000, format="%.3f", step=0.001)
             pct3 = st.number_input("% Acima da meta", value=6.000, format="%.3f", step=0.001)
             st.markdown("---")
-            
+
             btn_calcular = st.form_submit_button("🔍 Calcular")
 
         if btn_calcular:
@@ -475,14 +477,26 @@ def main():
                         tooltip=[alt.Tooltip('Comissao_Num:Q', title='Comissão (R$)', format=',.2f')]
                     )
 
-                    bars_mes = base_mes.mark_bar().encode(color=alt.Color('Distribuidor:N', legend=None))
-                    text_mes = base_mes.mark_text(dy=-5, size=12).encode(text=alt.Text('Comissao_Num:Q', format=',.2f'))
+                    bars_mes = base_mes.mark_bar().encode(
+                        color=alt.Color('Distribuidor:N', legend=None)
+                    )
+
+                    # Texto com fundo e fonte maior
+                    text_mes = base_mes.mark_text(
+                        dy=-10,         # desloca o texto para cima da barra
+                        size=14,        # fonte levemente maior
+                        color='black',  # cor da fonte
+                        # define um retângulo de fundo para destacar o valor
+                        background='#f2f2f2'
+                    ).encode(
+                        text=alt.Text('Comissao_Num:Q', format=',.2f')
+                    )
 
                     chart_mes = (bars_mes + text_mes).properties(width='container', height=400)
                     st.altair_chart(chart_mes, use_container_width=True)
 
                     # -------------------------------------------------------
-                    # Gráfico anual (Altair + labels)
+                    # Gráfico anual (Altair + labels + total por mês)
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
@@ -493,6 +507,7 @@ def main():
                     df_annual['mes_str'] = df_annual['mes'].apply(lambda x: f"{x:02d}")
                     df_annual.rename(columns={'nome_distribuidor': 'Distribuidor', 'Comissao_R$': 'Comissao_Num'}, inplace=True)
 
+                    # Base do stacked bar
                     base_annual = alt.Chart(df_annual).encode(
                         x=alt.X('mes_str:O', title='Mês'),
                         y=alt.Y('Comissao_Num:Q', stack='zero', title='Comissão (R$)'),
@@ -505,12 +520,40 @@ def main():
                     )
 
                     bars_annual = base_annual.mark_bar()
-                    text_annual = base_annual.mark_text(size=10, dy=0).encode(
+
+                    # Texto individual para cada segmento (com fundo e fonte maior)
+                    text_annual = base_annual.mark_text(
+                        size=12,       # fonte um pouco maior
+                        dy=0,          # texto centralizado dentro de cada segmento
+                        color='black',
+                        background='#f2f2f2'
+                    ).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f'),
                         y=alt.Y('Comissao_Num:Q', stack='center')
                     )
 
-                    chart_annual = (bars_annual + text_annual).properties(width='container', height=400)
+                    # Para somar o total por mês, cria DataFrame resumo
+                    df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
+
+                    # Texto no topo de cada barra empilhada com o valor total
+                    total_text = alt.Chart(df_total_mes).mark_text(
+                        dy=-5,        # desloca um pouco para cima do topo
+                        size=14,      # fonte maior para destacar o total
+                        color='black',
+                        background='#e6e6e6'  # fundo levemente diferente
+                    ).encode(
+                        x=alt.X('mes_str:O'),
+                        y=alt.Y('Total_Mes:Q'),
+                        text=alt.Text('Total_Mes:Q', format=',.2f')
+                    )
+
+                    chart_annual = (bars_annual + text_annual + text_annual.encode(
+                                        y=alt.Y('Comissao_Num:Q', stack='center')
+                                    )).properties(width='container', height=450)
+                    # Observação: a camada text_annual.encode(y=...) adiciona os rótulos individuais no centro de cada segmento
+                    # e total_text coloca o total no topo. Para separar visualmente, unimos as três camadas acima:
+                    chart_annual = (bars_annual + text_annual + total_text).properties(width='container', height=450)
+
                     st.altair_chart(chart_annual, use_container_width=True)
 
                     # -------------------------------------------------------
