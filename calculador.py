@@ -482,9 +482,29 @@ def main():
                     col4.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
 
                     # -------------------------------------------------------
+                    # Definir sequência de cores e mapear cada distribuidor
+                    # -------------------------------------------------------
+                    color_sequence = [
+                        "#FF5733", "#33FF57", "#3357FF", "#FF33A1", "#A133FF",
+                        "#33FFF5", "#FF8C33", "#8CFF33", "#338CFF", "#FF338C",
+                        "#33A1FF", "#A1FF33", "#FF3333", "#33FF33", "#3333FF",
+                        "#FF33FF", "#33FFFF", "#FFFF33", "#D35400", "#27AE60",
+                        "#2980B9", "#8E44AD", "#16A085", "#F39C12", "#C0392B"
+                    ]
+                    # Caso exceda o número de cores, avisar e continuar com repetição
+                    n_dist = len(selected_dist)
+                    if n_dist > len(color_sequence):
+                        st.warning(
+                            f"Há mais distribuidores ({n_dist}) do que cores pré-definidas ({len(color_sequence)}).\n"
+                            "Alguns poderão repetir cor."
+                        )
+                    dist_colors = {
+                        dist: color_sequence[i % len(color_sequence)]
+                        for i, dist in enumerate(selected_dist)
+                    }
+
+                    # -------------------------------------------------------
                     # Gráfico de Comissões por Distribuidor (Mês Selecionado)
-                    # - Utilizando Plotly para maior customização
-                    # - Exibe rótulo com valor total da barra (por distribuidor)
                     # -------------------------------------------------------
                     st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
                     df_graf_mes = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
@@ -495,6 +515,8 @@ def main():
                         x='Distribuidor',
                         y='Comissao_Num',
                         text='Comissao_Num',
+                        color='Distribuidor',
+                        color_discrete_map=dist_colors,
                         labels={'Comissao_Num': 'Comissão (R$)'},
                         title=None
                     )
@@ -509,14 +531,13 @@ def main():
                         yaxis_tickformat=",.2f",
                         margin=dict(t=20, b=20, l=40, r=20),
                         xaxis_title="Distribuidor",
-                        yaxis_title="Comissão (R$)"
+                        yaxis_title="Comissão (R$)",
+                        showlegend=False
                     )
                     st.plotly_chart(fig_mes, use_container_width=True)
 
                     # -------------------------------------------------------
                     # Gráfico Anual de Comissões por Mês e Distribuidor
-                    # - Utilizando Plotly para maior customização
-                    # - Exibe rótulo com valor total por mês (empilhado)
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
@@ -532,14 +553,13 @@ def main():
                         x='mes_str',
                         y='Comissao_Num',
                         color='Distribuidor',
+                        color_discrete_map=dist_colors,
                         labels={'mes_str': 'Mês', 'Comissao_Num': 'Comissão (R$)'},
                         title=None
                     )
 
-                    # Calcular total empilhado por mês
+                    # Calcular total empilhado por mês e adicionar anotações
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
-
-                    # Adicionar anotações de total em cada barra empilhada
                     for idx, row in df_total_mes.iterrows():
                         fig_annual.add_annotation(
                             x=row['mes_str'],
@@ -564,7 +584,6 @@ def main():
 
                     # -------------------------------------------------------
                     # Tabelas de Valor por KG (por SKU por Distribuidor)
-                    # Mostradas lado a lado, três tabelas por distribuidor
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Valor de Comissão por KG de cada SKU**")
@@ -581,7 +600,6 @@ def main():
                             st.write("Sem dados de SKU para este distribuidor.")
                             continue
 
-                        # Criar três colunas para as tabelas T1, T2 e T3
                         col_t1, col_t2, col_t3 = st.columns(3)
 
                         # Tabela T1
