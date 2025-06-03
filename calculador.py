@@ -246,6 +246,9 @@ def main():
                 selected_produtos = prod_selecionados
 
                 with st.spinner("Processando dados..."):
+                    # ------------------------------- 
+                    # Cálculo para o mês selecionado
+                    # -------------------------------
                     df_curr = df_fatur[
                         (df_fatur['nome_distribuidor'].isin(selected_dist)) &
                         (df_fatur['ano'] == selected_ano) &
@@ -435,11 +438,11 @@ def main():
                     totais_merge['Kg Até Ano Anterior'] = totais_merge['Kg_T1_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
@@ -465,7 +468,8 @@ def main():
                     col4.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
 
                     # -------------------------------------------------------
-                    # Gráfico de barras do mês selecionado (Altair + labels)
+                    # Gráfico de Comissões por Distribuidor (Mês Selecionado)
+                    # apenas total acima de cada barra
                     # -------------------------------------------------------
                     st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
                     df_graf_mes = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
@@ -476,27 +480,29 @@ def main():
                         y=alt.Y('Comissao_Num:Q', title='Comissão (R$)'),
                         tooltip=[alt.Tooltip('Comissao_Num:Q', title='Comissão (R$)', format=',.2f')]
                     )
-
                     bars_mes = base_mes.mark_bar().encode(
                         color=alt.Color('Distribuidor:N', legend=None)
                     )
 
-                    # Texto com contorno (stroke) para destacar e fonte levemente maior
-                    text_mes = base_mes.mark_text(
-                        dy=-10,             # desloca o texto para cima da barra
-                        fontSize=14,        # fonte levemente maior
-                        color='black',      # cor principal do texto
-                        stroke='white',     # contorno branco
-                        strokeWidth=2       # espessura do contorno
+                    # Texto apenas com total, em uma linha acima das barras
+                    text_mes = alt.Chart(df_graf_mes).mark_text(
+                        dy=-10,           # desloca o texto para cima da barra
+                        fontSize=14,      # fonte maior para contraste
+                        color='black',    # cor escura para contrastar
+                        stroke='white',   # contorno branco para garantir legibilidade
+                        strokeWidth=2
                     ).encode(
-                        text=alt.Text('Comissao_Num:Q', format=',.2f')
+                        x=alt.X('Distribuidor:N', sort=None),
+                        y=alt.Y('Comissao_Num:Q'),
+                        text=alt.Text('Comissao_Num:Q', format='R$ ,.2f')
                     )
 
                     chart_mes = (bars_mes + text_mes).properties(width='container', height=400)
                     st.altair_chart(chart_mes, use_container_width=True)
 
                     # -------------------------------------------------------
-                    # Gráfico anual (Altair + labels + total por mês)
+                    # Gráfico Anual de Comissões por Mês e Distribuidor
+                    # apenas total acima de cada barra empilhada
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
@@ -507,7 +513,6 @@ def main():
                     df_annual['mes_str'] = df_annual['mes'].apply(lambda x: f"{x:02d}")
                     df_annual.rename(columns={'nome_distribuidor': 'Distribuidor', 'Comissao_R$': 'Comissao_Num'}, inplace=True)
 
-                    # Base do stacked bar
                     base_annual = alt.Chart(df_annual).encode(
                         x=alt.X('mes_str:O', title='Mês'),
                         y=alt.Y('Comissao_Num:Q', stack='zero', title='Comissão (R$)'),
@@ -518,83 +523,58 @@ def main():
                             alt.Tooltip('Comissao_Num:Q', title='Comissão (R$)', format=',.2f')
                         ]
                     )
-
                     bars_annual = base_annual.mark_bar()
 
-                    # Texto individual para cada segmento (com contorno)
-                    text_annual = base_annual.mark_text(
-                        size=12,           # fonte levemente maior
-                        dy=0,              # texto centralizado em cada fatia
-                        color='black',
-                        stroke='white',    # contorno branco
-                        strokeWidth=1      # espessura discreta do contorno
-                    ).encode(
-                        text=alt.Text('Comissao_Num:Q', format=',.2f'),
-                        y=alt.Y('Comissao_Num:Q', stack='center')
-                    )
-
-                    # Para somar o total por mês, criar DataFrame resumo
+                    # Calcular total por mês e exibir acima das barras empilhadas
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
-
-                    # Texto no topo de cada barra empilhada com valor total (com contorno)
                     total_text = alt.Chart(df_total_mes).mark_text(
-                        dy=-5,           # desloca um pouco para cima do topo
-                        fontSize=14,     # fonte maior para destacar o total
+                        dy=-5,           # desloca um pouco acima do topo
+                        fontSize=14,     # fonte maior para destaque
                         color='black',
-                        stroke='white',  # contorno branco
-                        strokeWidth=2    # contorno mais evidente
+                        stroke='white',
+                        strokeWidth=2
                     ).encode(
                         x=alt.X('mes_str:O'),
                         y=alt.Y('Total_Mes:Q'),
-                        text=alt.Text('Total_Mes:Q', format=',.2f')
+                        text=alt.Text('Total_Mes:Q', format='R$ ,.2f')
                     )
 
-                    chart_annual = (bars_annual + text_annual + total_text).properties(width='container', height=450)
+                    chart_annual = (bars_annual + total_text).properties(width='container', height=450)
                     st.altair_chart(chart_annual, use_container_width=True)
 
                     # -------------------------------------------------------
-                    # Tabelas de Valor por KG para cada alíquota
+                    # Tabelas de Valor por KG por Distribuidor (resumido)
                     # -------------------------------------------------------
                     st.markdown("---")
-                    st.markdown("**Valor de Comissão por KG de cada SKU**")
+                    st.markdown("**Valor de Comissão por KG (Resumo por Distribuidor)**")
 
-                    df_rate = df_merge[['nome_distribuidor', 'codigo_produto', 'Preco_Kg_Mes']].copy()
-                    df_rate['Valor_por_Kg_T1'] = df_rate['Preco_Kg_Mes'] * (pct1 / 100)
-                    df_rate['Valor_por_Kg_T2'] = df_rate['Preco_Kg_Mes'] * (pct2 / 100)
-                    df_rate['Valor_por_Kg_T3'] = df_rate['Preco_Kg_Mes'] * (pct3 / 100)
+                    # Usar totais_merge para recuperar Preco_Medio_Kg por distribuidor
+                    df_resumo_rate = totais_merge[['Distribuidor', 'Preco_Medio_Kg']].copy()
+                    df_resumo_rate['Valor_por_Kg_T1'] = df_resumo_rate['Preco_Medio_Kg'] * (pct1 / 100)
+                    df_resumo_rate['Valor_por_Kg_T2'] = df_resumo_rate['Preco_Medio_Kg'] * (pct2 / 100)
+                    df_resumo_rate['Valor_por_Kg_T3'] = df_resumo_rate['Preco_Medio_Kg'] * (pct3 / 100)
 
                     # Tabela para T1
                     st.subheader(f"Tabela - Valor por KG (Até ano anterior) ({pct1:.3f}%)")
-                    df_t1 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T1']].copy()
-                    df_t1.rename(columns={
-                        'nome_distribuidor': 'Distribuidor',
-                        'codigo_produto': 'Produto',
-                        'Valor_por_Kg_T1': f'Valor R$/Kg T1 ({pct1:.3f}%)'
-                    }, inplace=True)
+                    df_t1 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T1']].copy()
+                    df_t1.rename(columns={'Valor_por_Kg_T1': f'Valor R$/Kg T1 ({pct1:.3f}%)'}, inplace=True)
                     df_t1[f'Valor R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'Valor R$/Kg T1 ({pct1:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
-                    st.dataframe(df_t1)
+                    st.dataframe(df_t1, use_container_width=True)
 
                     # Tabela para T2
                     st.subheader(f"Tabela - Valor por KG (Entre ano anterior e meta) ({pct2:.3f}%)")
-                    df_t2 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T2']].copy()
-                    df_t2.rename(columns={
-                        'nome_distribuidor': 'Distribuidor',
-                        'codigo_produto': 'Produto',
-                        'Valor_por_Kg_T2': f'Valor R$/Kg T2 ({pct2:.3f}%)'
-                    }, inplace=True)
+                    df_t2 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T2']].copy()
+                    df_t2.rename(columns={'Valor_por_Kg_T2': f'Valor R$/Kg T2 ({pct2:.3f}%)'}, inplace=True)
                     df_t2[f'Valor R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'Valor R$/Kg T2 ({pct2:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
-                    st.dataframe(df_t2)
+                    st.dataframe(df_t2, use_container_width=True)
 
                     # Tabela para T3
                     st.subheader(f"Tabela - Valor por KG (Acima da meta) ({pct3:.3f}%)")
-                    df_t3 = df_rate[['nome_distribuidor', 'codigo_produto', 'Valor_por_Kg_T3']].copy()
-                    df_t3.rename(columns={
-                        'nome_distribuidor': 'Distribuidor',
-                        'codigo_produto': 'Produto',
-                        'Valor_por_Kg_T3': f'Valor R$/Kg T3 ({pct3:.3f}%)'
-                    }, inplace=True)
+                    df_t3 = df_resumo_rate[['Distribuidor', 'Valor_por_Kg_T3']].copy()
+                    df_t3.rename(columns={'Valor_por_Kg_T3': f'Valor R$/Kg T3 ({pct3:.3f}%)'}, inplace=True)
                     df_t3[f'Valor R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'Valor R$/Kg T3 ({pct3:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
-                    st.dataframe(df_t3)
+                    st.dataframe(df_t3, use_container_width=True)
+
         else:
             st.sidebar.info("Faça upload do Excel, escolha filtros e clique em 'Calcular'.")
     else:
