@@ -65,6 +65,7 @@ def load_meta_filtered(dist, ano, mes):
     df_meta_kg = pd.read_sql(query_kg, engine)
     df_meta_rs = pd.read_sql(query_rs, engine)
 
+    # Preencher distribuidores ausentes com zero
     for d in dist_upper:
         if d not in df_meta_kg['nome_distribuidor'].tolist():
             df_meta_kg = pd.concat(
@@ -244,7 +245,7 @@ def main():
                 selected_produtos = prod_selecionados
 
                 with st.spinner("Processando dados..."):
-                    # ------------------------------- 
+                    # -------------------------------
                     # Cálculo para o mês selecionado
                     # -------------------------------
                     df_curr = df_fatur[
@@ -437,10 +438,10 @@ def main():
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
