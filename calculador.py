@@ -211,7 +211,8 @@ def main():
     st.sidebar.header("📁 Importar dados e selecionar filtros")
     uploaded_file = st.sidebar.file_uploader("Arquivo Excel da base de faturamento", type=["xlsx", "xls"])
 
-    distribuidores, anos, meses = [], [], []
+    # Inicializar variáveis antes de usar no form, para evitar UnboundLocalError
+    distribuidores, anos, meses, produtos = [], [], [], []
     selected_dist, selected_ano, selected_mes, selected_produtos = [], None, None, []
 
     if uploaded_file:
@@ -229,19 +230,26 @@ def main():
             meses = list(range(1, 13))
             produtos = sorted(df_fatur['codigo_produto'].dropna().unique())
 
+        # Formulário de filtros
         with st.sidebar.form(key="filtros_form"):
             st.subheader("📋 Filtros")
             dist_selecionados = st.multiselect("Distribuidores", distribuidores, help="Selecione distribuidores")
             ano_selecionado = st.selectbox("Ano de análise", anos, index=len(anos)-1 if anos else 0) if anos else None
-            mes_selecionado = st.selectbox("Mês de análise", meses, format_func=lambda x: f"{x:02d}",
-                                           index=datetime.now().month-1) if meses else None
+            mes_selecionado = st.selectbox(
+                "Mês de análise", 
+                meses, 
+                format_func=lambda x: f"{x:02d}",
+                index=datetime.now().month-1
+            ) if meses else None
             prod_selecionados = st.multiselect("Produtos (código)", produtos, help="Selecione produtos")
+            
             st.markdown("---")
             st.subheader("⚙️ Configuração de Comissões")
             pct1 = st.number_input("% Até volume do ano anterior", value=2.0, format="%.1f")
             pct2 = st.number_input("% Volume entre ano anterior e meta", value=4.0, format="%.1f")
             pct3 = st.number_input("% Acima da meta", value=6.0, format="%.1f")
             st.markdown("---")
+            
             btn_calcular = st.form_submit_button("🔍 Calcular")
 
         if btn_calcular:
@@ -411,7 +419,7 @@ def main():
                     st.dataframe(df_display)
 
                     # ----------------------------
-                    # Legenda dos Cálculos (novidade)
+                    # Legenda dos Cálculos
                     # ----------------------------
                     st.markdown("#### 📝 Legenda das Colunas")
                     st.markdown(
@@ -462,21 +470,18 @@ def main():
                     totais_merge['Kg Ano Anterior'] = totais_merge['Total_Kg_Ant'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Kg Mês'] = totais_merge['Total_Kg_Mes'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Meta Kg (dividido)'] = totais_merge['Sum_Meta_Kg'].apply(lambda x: f"{x:,.0f}")
-                    # Agora "Kg Entre Ano Ant. e Meta" nos totais = Sum_Meta_Kg – Total_Kg_Ant (ou zero se negativo)
                     totais_merge['Kg Entre Ano Ant. e Meta'] = totais_merge.apply(
                         lambda r: f"{max(r['Sum_Meta_Kg'] - r['Total_Kg_Ant'], 0):,.0f}", axis=1
                     )
-                    totais_merge['Preço Médio (R$/Kg)'] = totais_merge['Preco_Medio_Kg'].apply(
-                        lambda x: f"R$ {x:,.2f}"
-                    )
+                    totais_merge['Preço Médio (R$/Kg)'] = totais_merge['Preco_Medio_Kg'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Kg Até Ano Anterior'] = totais_merge['Kg_T1_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
@@ -493,9 +498,7 @@ def main():
                     # Gráfico de barras do mês selecionado (Altair + labels)
                     # -------------------------------------------------------
                     st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
-                    # Preparar DataFrame com os valores numéricos para plotar
                     df_graf_mes = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
-                    # Usar raw string para corrigir o warning de escape
                     df_graf_mes['Comissao_Num'] = totais_merge['Comissao_Total'].replace(r'[R\$,]', '', regex=True).astype(float)
 
                     base_mes = alt.Chart(df_graf_mes).encode(
@@ -505,30 +508,19 @@ def main():
                     )
 
                     bars_mes = base_mes.mark_bar().encode(color=alt.Color('Distribuidor:N', legend=None))
-                    text_mes = base_mes.mark_text(
-                        dy=-5,
-                        size=12
-                    ).encode(
-                        text=alt.Text('Comissao_Num:Q', format=',.2f')
-                    )
+                    text_mes = base_mes.mark_text(dy=-5, size=12).encode(text=alt.Text('Comissao_Num:Q', format=',.2f'))
 
                     chart_mes = (bars_mes + text_mes).properties(width='container', height=400)
                     st.altair_chart(chart_mes, use_container_width=True)
 
                     # -------------------------------------------------------
-                    # Cálculo e exibição do gráfico anual (Altair + labels)
+                    # Gráfico anual (Altair + labels)
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
 
                     df_annual = calcular_comissoes_mensais(
-                        df_fatur,
-                        selected_dist,
-                        selected_produtos,
-                        pct1,
-                        pct2,
-                        pct3,
-                        selected_ano
+                        df_fatur, selected_dist, selected_produtos, pct1, pct2, pct3, selected_ano
                     )
                     df_annual['mes_str'] = df_annual['mes'].apply(lambda x: f"{x:02d}")
                     df_annual.rename(columns={'nome_distribuidor': 'Distribuidor', 'Comissao_R$': 'Comissao_Num'}, inplace=True)
@@ -545,10 +537,7 @@ def main():
                     )
 
                     bars_annual = base_annual.mark_bar()
-                    text_annual = base_annual.mark_text(
-                        size=10,
-                        dy=0
-                    ).encode(
+                    text_annual = base_annual.mark_text(size=10, dy=0).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f'),
                         y=alt.Y('Comissao_Num:Q', stack='center')
                     )
