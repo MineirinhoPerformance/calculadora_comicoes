@@ -438,11 +438,11 @@ def main():
                     totais_merge['Kg Até Ano Anterior'] = totais_merge['Kg_T1_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
