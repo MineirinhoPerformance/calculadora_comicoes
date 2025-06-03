@@ -481,14 +481,13 @@ def main():
                         color=alt.Color('Distribuidor:N', legend=None)
                     )
 
-                    # Texto com halo (sombreamento) e fonte levemente maior
+                    # Texto com contorno (stroke) para destacar e fonte levemente maior
                     text_mes = base_mes.mark_text(
-                        dy=-10,           # desloca o texto para cima da barra
-                        fontSize=14,      # fonte levemente maior
-                        color='black',    # cor da fonte
-                        halo=True,        # ativa halo ao redor do texto
-                        haloColor='#f2f2f2',  # cor do halo (cinza claro)
-                        haloWidth=2       # largura do halo para destacar
+                        dy=-10,             # desloca o texto para cima da barra
+                        fontSize=14,        # fonte levemente maior
+                        color='black',      # cor principal do texto
+                        stroke='white',     # contorno branco
+                        strokeWidth=2       # espessura do contorno
                     ).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f')
                     )
@@ -522,14 +521,13 @@ def main():
 
                     bars_annual = base_annual.mark_bar()
 
-                    # Texto individual para cada segmento (usando halo)
+                    # Texto individual para cada segmento (com contorno)
                     text_annual = base_annual.mark_text(
                         size=12,           # fonte levemente maior
                         dy=0,              # texto centralizado em cada fatia
                         color='black',
-                        halo=True,         # ativa halo
-                        haloColor='#f2f2f2',  # cor do halo
-                        haloWidth=1        # largura do halo
+                        stroke='white',    # contorno branco
+                        strokeWidth=1      # espessura discreta do contorno
                     ).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f'),
                         y=alt.Y('Comissao_Num:Q', stack='center')
@@ -538,14 +536,13 @@ def main():
                     # Para somar o total por mês, criar DataFrame resumo
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
 
-                    # Texto no topo de cada barra empilhada com valor total (com halo)
+                    # Texto no topo de cada barra empilhada com valor total (com contorno)
                     total_text = alt.Chart(df_total_mes).mark_text(
                         dy=-5,           # desloca um pouco para cima do topo
                         fontSize=14,     # fonte maior para destacar o total
                         color='black',
-                        halo=True,       # halo mais escuro para destacar
-                        haloColor='#e6e6e6',
-                        haloWidth=2      # halo mais evidente
+                        stroke='white',  # contorno branco
+                        strokeWidth=2    # contorno mais evidente
                     ).encode(
                         x=alt.X('mes_str:O'),
                         y=alt.Y('Total_Mes:Q'),
