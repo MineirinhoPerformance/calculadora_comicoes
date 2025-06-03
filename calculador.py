@@ -156,13 +156,12 @@ def calcular_comissoes_mensais(df_fatur, selected_dist, selected_produtos, pct1,
             total = row['Total_Kg_Mes']
             prev = row['Total_Kg_Ant']
             meta = row['meta_kg']
-            # Se anteior >= meta: T1 até prev, T3 acima, sem T2
+            # Se Total_Ant >= Meta: paga T1 até Total_Ant, T3 acima
             if prev >= meta:
                 kg_t1 = min(total, prev)
                 kg_t2 = 0
                 kg_t3 = max(total - prev, 0)
             else:
-                # prev < meta
                 if total <= prev:
                     kg_t1 = total
                     kg_t2 = 0
@@ -483,7 +482,7 @@ def main():
 
                     # -------------------------------------------------------
                     # Gráfico de Comissões por Distribuidor (Mês Selecionado)
-                    # Deve conter um rótulo com a soma de todos os distribuidores
+                    # Deve conter rótulo com a soma total
                     # -------------------------------------------------------
                     st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
                     df_graf_mes = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
@@ -498,7 +497,7 @@ def main():
                         color=alt.Color('Distribuidor:N', legend=None)
                     )
 
-                    # Rótulo com soma total de todos os distribuidores (um único valor)
+                    # Rótulo com soma total de todos os distribuidores
                     total_geral_mes = df_graf_mes['Comissao_Num'].sum()
                     total_label = alt.Chart(pd.DataFrame({
                         'x': [''],
@@ -513,9 +512,6 @@ def main():
                         x=alt.X('x:N', title=''),
                         y=alt.Y('y:Q'),
                         text=alt.Text('y:Q', format='R$ ,.2f')
-                    ).transform_calculate(
-                        # Mapear 'x' para o centro do eixo x
-                        x="datum.x"
                     )
 
                     chart_mes = (bars_mes + total_label).properties(width='container', height=400)
@@ -523,7 +519,7 @@ def main():
 
                     # -------------------------------------------------------
                     # Gráfico Anual de Comissões por Mês e Distribuidor
-                    # Deve conter um rótulo com a soma de todos os distribuidores por mês
+                    # Deve conter rótulo total por mês
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
@@ -546,7 +542,6 @@ def main():
                     )
                     bars_annual = base_annual.mark_bar()
 
-                    # Total por mês
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
                     total_text = alt.Chart(df_total_mes).mark_text(
                         dy=-5,
@@ -565,7 +560,7 @@ def main():
 
                     # -------------------------------------------------------
                     # Tabelas de Valor por KG (por SKU por Distribuidor)
-                    # as três tabelas separadas por distribuidor
+                    # Mostradas lado a lado, três tabelas por distribuidor
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Valor de Comissão por KG de cada SKU**")
@@ -575,42 +570,53 @@ def main():
                     df_rate['Valor_por_Kg_T2'] = df_rate['Preco_Kg_Mes'] * (pct2 / 100)
                     df_rate['Valor_por_Kg_T3'] = df_rate['Preco_Kg_Mes'] * (pct3 / 100)
 
-                    # Iterar por distribuidor e criar uma seção
                     for dist in selected_dist:
-                        with st.expander(f"Distribuidor: {dist}", expanded=False):
-                            df_dist = df_rate[df_rate['nome_distribuidor'] == dist].copy()
-                            if df_dist.empty:
-                                st.write("Sem dados de SKU para este distribuidor.")
-                                continue
+                        st.markdown(f"**Distribuidor: {dist}**")
+                        df_dist = df_rate[df_rate['nome_distribuidor'] == dist].copy()
+                        if df_dist.empty:
+                            st.write("Sem dados de SKU para este distribuidor.")
+                            continue
 
-                            # Tabela T1
-                            st.subheader(f"T1 – Valor por KG (Até ano anterior) para {dist} ({pct1:.3f}%)")
+                        # Criar três colunas para as tabelas T1, T2 e T3
+                        col_t1, col_t2, col_t3 = st.columns(3)
+
+                        # Tabela T1
+                        with col_t1:
+                            st.subheader(f"T1 – Até ano anterior ({pct1:.3f}%)")
                             df_t1 = df_dist[['codigo_produto', 'Valor_por_Kg_T1']].copy()
                             df_t1.rename(columns={
                                 'codigo_produto': 'SKU',
                                 'Valor_por_Kg_T1': f'R$/Kg T1 ({pct1:.3f}%)'
                             }, inplace=True)
-                            df_t1[f'R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'R$/Kg T1 ({pct1:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                            df_t1[f'R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'R$/Kg T1 ({pct1:.3f}%)'].apply(
+                                lambda x: f"R$ {x:,.3f}"
+                            )
                             st.dataframe(df_t1.reset_index(drop=True), use_container_width=True)
 
-                            # Tabela T2
-                            st.subheader(f"T2 – Valor por KG (Entre ano anterior e meta) para {dist} ({pct2:.3f}%)")
+                        # Tabela T2
+                        with col_t2:
+                            st.subheader(f"T2 – Entre ano anterior e meta ({pct2:.3f}%)")
                             df_t2 = df_dist[['codigo_produto', 'Valor_por_Kg_T2']].copy()
                             df_t2.rename(columns={
                                 'codigo_produto': 'SKU',
                                 'Valor_por_Kg_T2': f'R$/Kg T2 ({pct2:.3f}%)'
                             }, inplace=True)
-                            df_t2[f'R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'R$/Kg T2 ({pct2:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                            df_t2[f'R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'R$/Kg T2 ({pct2:.3f}%)'].apply(
+                                lambda x: f"R$ {x:,.3f}"
+                            )
                             st.dataframe(df_t2.reset_index(drop=True), use_container_width=True)
 
-                            # Tabela T3
-                            st.subheader(f"T3 – Valor por KG (Acima da meta) para {dist} ({pct3:.3f}%)")
+                        # Tabela T3
+                        with col_t3:
+                            st.subheader(f"T3 – Acima da meta ({pct3:.3f}%)")
                             df_t3 = df_dist[['codigo_produto', 'Valor_por_Kg_T3']].copy()
                             df_t3.rename(columns={
                                 'codigo_produto': 'SKU',
                                 'Valor_por_Kg_T3': f'R$/Kg T3 ({pct3:.3f}%)'
                             }, inplace=True)
-                            df_t3[f'R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'R$/Kg T3 ({pct3:.3f}%)'].apply(lambda x: f"R$ {x:,.3f}")
+                            df_t3[f'R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'R$/Kg T3 ({pct3:.3f}%)'].apply(
+                                lambda x: f"R$ {x:,.3f}"
+                            )
                             st.dataframe(df_t3.reset_index(drop=True), use_container_width=True)
 
         else:
