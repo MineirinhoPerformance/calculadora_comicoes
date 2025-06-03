@@ -481,13 +481,14 @@ def main():
                         color=alt.Color('Distribuidor:N', legend=None)
                     )
 
-                    # Texto com fundo e fonte maior
+                    # Texto com halo (sombreamento) e fonte levemente maior
                     text_mes = base_mes.mark_text(
-                        dy=-10,         # desloca o texto para cima da barra
-                        size=14,        # fonte levemente maior
-                        color='black',  # cor da fonte
-                        # define um retângulo de fundo para destacar o valor
-                        background='#f2f2f2'
+                        dy=-10,           # desloca o texto para cima da barra
+                        fontSize=14,      # fonte levemente maior
+                        color='black',    # cor da fonte
+                        halo=True,        # ativa halo ao redor do texto
+                        haloColor='#f2f2f2',  # cor do halo (cinza claro)
+                        haloWidth=2       # largura do halo para destacar
                     ).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f')
                     )
@@ -521,39 +522,37 @@ def main():
 
                     bars_annual = base_annual.mark_bar()
 
-                    # Texto individual para cada segmento (com fundo e fonte maior)
+                    # Texto individual para cada segmento (usando halo)
                     text_annual = base_annual.mark_text(
-                        size=12,       # fonte um pouco maior
-                        dy=0,          # texto centralizado dentro de cada segmento
+                        size=12,           # fonte levemente maior
+                        dy=0,              # texto centralizado em cada fatia
                         color='black',
-                        background='#f2f2f2'
+                        halo=True,         # ativa halo
+                        haloColor='#f2f2f2',  # cor do halo
+                        haloWidth=1        # largura do halo
                     ).encode(
                         text=alt.Text('Comissao_Num:Q', format=',.2f'),
                         y=alt.Y('Comissao_Num:Q', stack='center')
                     )
 
-                    # Para somar o total por mês, cria DataFrame resumo
+                    # Para somar o total por mês, criar DataFrame resumo
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
 
-                    # Texto no topo de cada barra empilhada com o valor total
+                    # Texto no topo de cada barra empilhada com valor total (com halo)
                     total_text = alt.Chart(df_total_mes).mark_text(
-                        dy=-5,        # desloca um pouco para cima do topo
-                        size=14,      # fonte maior para destacar o total
+                        dy=-5,           # desloca um pouco para cima do topo
+                        fontSize=14,     # fonte maior para destacar o total
                         color='black',
-                        background='#e6e6e6'  # fundo levemente diferente
+                        halo=True,       # halo mais escuro para destacar
+                        haloColor='#e6e6e6',
+                        haloWidth=2      # halo mais evidente
                     ).encode(
                         x=alt.X('mes_str:O'),
                         y=alt.Y('Total_Mes:Q'),
                         text=alt.Text('Total_Mes:Q', format=',.2f')
                     )
 
-                    chart_annual = (bars_annual + text_annual + text_annual.encode(
-                                        y=alt.Y('Comissao_Num:Q', stack='center')
-                                    )).properties(width='container', height=450)
-                    # Observação: a camada text_annual.encode(y=...) adiciona os rótulos individuais no centro de cada segmento
-                    # e total_text coloca o total no topo. Para separar visualmente, unimos as três camadas acima:
                     chart_annual = (bars_annual + text_annual + total_text).properties(width='container', height=450)
-
                     st.altair_chart(chart_annual, use_container_width=True)
 
                     # -------------------------------------------------------
