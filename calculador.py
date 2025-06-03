@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
-import altair as alt
+import plotly.express as px
+import plotly.graph_objects as go
 
 # -------------------------------------------------------
 # Configurar a página (primeiro comando do Streamlit)
@@ -406,7 +407,7 @@ def main():
                           - se `Kg Ano Anterior >= Meta`: até `Kg Ano Anterior` paga T1, e acima paga T3  
                           - se `Meta > Kg Ano Anterior` e `Kg Mês <= Kg Ano Anterior`: paga T1 apenas  
                           - se `Meta > Kg Ano Anterior` e `Kg Mês > Kg Ano Anterior`: paga T1 até `Kg Ano Anterior`, paga T2 até `Meta`, paga T3 acima de `Meta`.  
-                        - **Preço/kg Mês (R$)**: `Faturamento_Mes` dividido por `Total_Kg_Mes` (quando `Total_Kg_Mes > 0`), formatado em real.  
+                        - **Preço/kg Mês (R$)**: `Faturamento_Mes` dividido por `Kg Mês` (quando `Kg Mês > 0`), formatado em real.  
                         - **Valor Até Ano Anterior (R$)**: `Kg_T1 * Preço/kg Mês`.  
                         - **Valor Faixa Meta (R$)**: `Kg_T2 * Preço/kg Mês`.  
                         - **Valor Acima Meta (R$)**: `Kg_T3 * Preço/kg Mês`.  
@@ -451,11 +452,11 @@ def main():
                     totais_merge['Kg Até Ano Anterior'] = totais_merge['Kg_T1_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Kg Acima da Meta'] = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
                     totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+                    totais_merge['Valor Faixa Meta (R$)'] = totais_merge['Val_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")  # ajuste: Val_T2_TOTAL
+                    totais_merge['Valor Acima Meta (R$)'] = totais_merge['Val_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")  # ajuste: Val_T3_TOTAL
+                    totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")  # ajuste: Com_T1_TOTAL
+                    totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")  # ajuste: Com_T2_TOTAL
+                    totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_TOTAL'].apply(lambda x: f"R$ {x:,.2f}")  # ajuste: Com_T3_TOTAL
                     totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
                     totais_exib = totais_merge[[ 
@@ -482,44 +483,40 @@ def main():
 
                     # -------------------------------------------------------
                     # Gráfico de Comissões por Distribuidor (Mês Selecionado)
-                    # Deve conter rótulo com a soma total
+                    # - Utilizando Plotly para maior customização
+                    # - Exibe rótulo com valor total da barra (por distribuidor)
                     # -------------------------------------------------------
                     st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
                     df_graf_mes = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
                     df_graf_mes['Comissao_Num'] = totais_merge['Comissao_Total'].replace(r'[R\$,]', '', regex=True).astype(float)
 
-                    base_mes = alt.Chart(df_graf_mes).encode(
-                        x=alt.X('Distribuidor:N', sort=None, title='Distribuidor'),
-                        y=alt.Y('Comissao_Num:Q', title='Comissão (R$)'),
-                        tooltip=[alt.Tooltip('Comissao_Num:Q', title='Comissão (R$)', format=',.2f')]
+                    fig_mes = px.bar(
+                        df_graf_mes,
+                        x='Distribuidor',
+                        y='Comissao_Num',
+                        text='Comissao_Num',
+                        labels={'Comissao_Num': 'Comissão (R$)'},
+                        title=None
                     )
-                    bars_mes = base_mes.mark_bar().encode(
-                        color=alt.Color('Distribuidor:N', legend=None)
+                    fig_mes.update_traces(
+                        texttemplate='R$ %{text:,.2f}',
+                        textposition='outside',
+                        marker_line_width=0.5
                     )
-
-                    # Rótulo com soma total de todos os distribuidores
-                    total_geral_mes = df_graf_mes['Comissao_Num'].sum()
-                    total_label = alt.Chart(pd.DataFrame({
-                        'x': [''],
-                        'y': [total_geral_mes]
-                    })).mark_text(
-                        dy=-10,
-                        fontSize=16,
-                        color='black',
-                        stroke='white',
-                        strokeWidth=2
-                    ).encode(
-                        x=alt.X('x:N', title=''),
-                        y=alt.Y('y:Q'),
-                        text=alt.Text('y:Q', format='R$ ,.2f')
+                    fig_mes.update_layout(
+                        uniformtext_minsize=12,
+                        uniformtext_mode='hide',
+                        yaxis_tickformat=",.2f",
+                        margin=dict(t=20, b=20, l=40, r=20),
+                        xaxis_title="Distribuidor",
+                        yaxis_title="Comissão (R$)"
                     )
-
-                    chart_mes = (bars_mes + total_label).properties(width='container', height=400)
-                    st.altair_chart(chart_mes, use_container_width=True)
+                    st.plotly_chart(fig_mes, use_container_width=True)
 
                     # -------------------------------------------------------
                     # Gráfico Anual de Comissões por Mês e Distribuidor
-                    # Deve conter rótulo total por mês
+                    # - Utilizando Plotly para maior customização
+                    # - Exibe rótulo com valor total por mês (empilhado)
                     # -------------------------------------------------------
                     st.markdown("---")
                     st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor**")
@@ -530,33 +527,40 @@ def main():
                     df_annual['mes_str'] = df_annual['mes'].apply(lambda x: f"{x:02d}")
                     df_annual.rename(columns={'nome_distribuidor': 'Distribuidor', 'Comissao_R$': 'Comissao_Num'}, inplace=True)
 
-                    base_annual = alt.Chart(df_annual).encode(
-                        x=alt.X('mes_str:O', title='Mês'),
-                        y=alt.Y('Comissao_Num:Q', stack='zero', title='Comissão (R$)'),
-                        color=alt.Color('Distribuidor:N', title='Distribuidor'),
-                        tooltip=[
-                            alt.Tooltip('Distribuidor:N'),
-                            alt.Tooltip('mes_str:O', title='Mês'),
-                            alt.Tooltip('Comissao_Num:Q', title='Comissão (R$)', format=',.2f')
-                        ]
+                    fig_annual = px.bar(
+                        df_annual,
+                        x='mes_str',
+                        y='Comissao_Num',
+                        color='Distribuidor',
+                        labels={'mes_str': 'Mês', 'Comissao_Num': 'Comissão (R$)'},
+                        title=None
                     )
-                    bars_annual = base_annual.mark_bar()
 
+                    # Calcular total empilhado por mês
                     df_total_mes = df_annual.groupby('mes_str').agg(Total_Mes=('Comissao_Num', 'sum')).reset_index()
-                    total_text = alt.Chart(df_total_mes).mark_text(
-                        dy=-5,
-                        fontSize=16,
-                        color='black',
-                        stroke='white',
-                        strokeWidth=2
-                    ).encode(
-                        x=alt.X('mes_str:O'),
-                        y=alt.Y('Total_Mes:Q'),
-                        text=alt.Text('Total_Mes:Q', format='R$ ,.2f')
-                    )
 
-                    chart_annual = (bars_annual + total_text).properties(width='container', height=450)
-                    st.altair_chart(chart_annual, use_container_width=True)
+                    # Adicionar anotações de total em cada barra empilhada
+                    for idx, row in df_total_mes.iterrows():
+                        fig_annual.add_annotation(
+                            x=row['mes_str'],
+                            y=row['Total_Mes'],
+                            text=f"R$ {row['Total_Mes']:,.2f}",
+                            showarrow=False,
+                            yanchor="bottom",
+                            font=dict(size=14, color="black"),
+                            bgcolor="rgba(255,255,255,0.7)"
+                        )
+
+                    fig_annual.update_layout(
+                        barmode='stack',
+                        uniformtext_minsize=12,
+                        uniformtext_mode='hide',
+                        yaxis_tickformat=",.2f",
+                        margin=dict(t=20, b=20, l=40, r=20),
+                        xaxis_title="Mês",
+                        yaxis_title="Comissão (R$)"
+                    )
+                    st.plotly_chart(fig_annual, use_container_width=True)
 
                     # -------------------------------------------------------
                     # Tabelas de Valor por KG (por SKU por Distribuidor)
