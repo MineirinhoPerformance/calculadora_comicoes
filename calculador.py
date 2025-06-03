@@ -403,9 +403,9 @@ def main():
                         - **Kg Entre Ano Ant. e Meta**: `Meta Kg (dividido) – Kg Ano Anterior` (ou zero, se o resultado for negativo).  
                         - **Kg Até Ano Anterior (Kg_T1)**: parte do volume do mês que coincide com o volume até o ano anterior (ou seja, mínimo entre total atual e total do ano anterior).  
                         - **Kg Acima da Meta (Kg_T3)**: 
-                          - se `Total_Ant >= Meta`: até `Total_Ant` paga T1, e acima paga T3  
-                          - se `Meta > Total_Ant` e `Total_Mês <= Total_Ant`: paga T1 apenas  
-                          - se `Meta > Total_Ant` e `Total_Mês > Total_Ant`: paga T1 até `Total_Ant`, paga T2 até `Meta`, paga T3 acima de `Meta`.  
+                          - se `Kg Ano Anterior >= Meta`: até `Kg Ano Anterior` paga T1, e acima paga T3  
+                          - se `Meta > Kg Ano Anterior` e `Kg Mês <= Kg Ano Anterior`: paga T1 apenas  
+                          - se `Meta > Kg Ano Anterior` e `Kg Mês > Kg Ano Anterior`: paga T1 até `Kg Ano Anterior`, paga T2 até `Meta`, paga T3 acima de `Meta`.  
                         - **Preço/kg Mês (R$)**: `Faturamento_Mes` dividido por `Total_Kg_Mes` (quando `Total_Kg_Mes > 0`), formatado em real.  
                         - **Valor Até Ano Anterior (R$)**: `Kg_T1 * Preço/kg Mês`.  
                         - **Valor Faixa Meta (R$)**: `Kg_T2 * Preço/kg Mês`.  
