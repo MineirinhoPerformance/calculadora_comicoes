@@ -40,9 +40,9 @@ def load_metas_excel(metas_file):
     Lê um arquivo Excel que pode ter várias abas, cada aba contendo:
       ETAPA | COD CLIENTE MINEIRINHO | COD DISTRIBUIDOR | NOME DISTRIBUIDOR | COD PROD | 01/01/2025 | 02/01/2025 | ...
     Retorna um DataFrame com colunas:
-      ['nome_distribuidor', 'codigo_produto', 'data_dia', 'meta_kg_dia']
-      Onde meta_kg_dia é float arredondado a duas casas decimais.
+      ['nome_distribuidor', 'codigo_produto', 'data_dia', 'meta_kg_dia']    
     """
+    # Lê todas as abas como dicionário {sheet_name: DataFrame}
     dfs_sheets = pd.read_excel(metas_file, sheet_name=None, dtype=str)
     lista_metas = []
     
@@ -51,14 +51,17 @@ def load_metas_excel(metas_file):
         # Normaliza colunas
         df.columns = df.columns.str.strip()
         
-        # Verifica colunas mínimas
+        # Precisamos ter pelo menos as colunas 'NOME DISTRIBUIDOR' e 'COD PROD'
         if 'NOME DISTRIBUIDOR' not in df.columns or 'COD PROD' not in df.columns:
             continue
         
+        # Identifica quais colunas são datas: formato DD/MM/AAAA
+        # Vamos assumir que tudo que vier depois de 'COD PROD' são colunas de data
         colunas = df.columns.tolist()
         idx_inicio_datas = colunas.index('COD PROD') + 1
         datas_cols = colunas[idx_inicio_datas:]
         
+        # Faz o melt para “desempilhar” as datas
         melt = df.melt(
             id_vars=['NOME DISTRIBUIDOR', 'COD PROD'],
             value_vars=datas_cols,
@@ -67,16 +70,16 @@ def load_metas_excel(metas_file):
         )
         # Converte data_dia para datetime
         melt['data_dia'] = pd.to_datetime(melt['data_dia'], dayfirst=True, errors='coerce')
-        # Limpa e converte meta_kg_dia para float
+        # Converte meta_kg_dia para float (trata vírgula decimal e ponto de milhar)
         melt['meta_kg_dia'] = (
             melt['meta_kg_dia']
             .astype(str)
-            .str.replace('.', '', regex=False)   # remove ponto de milhar
-            .str.replace(',', '.', regex=False)  # vírgula → ponto
+            .str.replace('.', '', regex=False)   # remove pontos de milhar, se houver
+            .str.replace(',', '.', regex=False)  # converte vírgula decimal para ponto
         )
         melt['meta_kg_dia'] = pd.to_numeric(melt['meta_kg_dia'], errors='coerce').fillna(0.0)
-        # ** Ajuste: arredonda a duas casas decimais **
-        melt['meta_kg_dia'] = melt['meta_kg_dia'].round(2)
+        # ** Ajuste: truncar para inteiro (descartar parte decimal ) **
+        melt['meta_kg_dia'] = melt['meta_kg_dia'].apply(lambda x: int(x))
         # Padroniza nomes
         melt.rename(columns={'NOME DISTRIBUIDOR': 'nome_distribuidor', 
                              'COD PROD': 'codigo_produto'}, inplace=True)
@@ -87,6 +90,7 @@ def load_metas_excel(metas_file):
         return pd.DataFrame(columns=['nome_distribuidor','codigo_produto','data_dia','meta_kg_dia'])
     
     df_metas = pd.concat(lista_metas, ignore_index=True)
+    # Remove linhas sem data_dia válida
     df_metas = df_metas[df_metas['data_dia'].notna()].copy()
     return df_metas
 
@@ -100,21 +104,21 @@ def aggregate_metas_mensais(df_metas):
       ['nome_distribuidor','codigo_produto','data_dia','meta_kg_dia']
     Retorna DataFrame com metas mensais:
       ['nome_distribuidor','codigo_produto','ano','mes','meta_kg_mes']
-      Onde 'meta_kg_mes' é soma dos valores já arredondados a duas casas.
+      Onde 'meta_kg_mes' é soma dos valores inteiros de cada dia
     """
     df = df_metas.copy()
+    # Extrai ano e mês de cada data
     df['ano'] = df['data_dia'].dt.year
     df['mes'] = df['data_dia'].dt.month
+    # Agrupa e soma (já são inteiros)
     df_mes = (
         df
         .groupby(['nome_distribuidor','codigo_produto','ano','mes'], as_index=False)
         .agg(meta_kg_mes=('meta_kg_dia','sum'))
     )
-    # Garante strings
+    # Garante strings consistentes
     df_mes['nome_distribuidor'] = df_mes['nome_distribuidor'].astype(str)
     df_mes['codigo_produto']    = df_mes['codigo_produto'].astype(str)
-    # Arredonda de novo (caso haja soma que precise de ajuste)
-    df_mes['meta_kg_mes'] = df_mes['meta_kg_mes'].round(2)
     return df_mes
 
 # -------------------------------------------------------
@@ -181,24 +185,28 @@ def calcular_comissoes_mensais(
         df_merge['Delta_Kg'] = df_merge['Total_Kg_Mes'] - df_merge['Total_Kg_Ant']
         df_merge['Delta_R']  = df_merge['Faturamento_Mes'] - df_merge['Faturamento_Ant']
         
-        # 5) Agrega meta mensal (ano=selected_ano, mes=mes)
+        # 5) Agrega meta mensal: 
+        #    procuramos em df_meta_mensal a linha (dist,produto,ano,mes) → meta_kg_mes
         df_meta_mes_corrente = df_meta_mensal[
             (df_meta_mensal['ano'] == selected_ano) &
             (df_meta_mensal['mes'] == mes)
         ][['nome_distribuidor','codigo_produto','meta_kg_mes']].copy()
+        # Merge para trazer meta_kg_mes por distribuidor/produto
         df_merge = pd.merge(
             df_merge,
             df_meta_mes_corrente,
             on=['nome_distribuidor','codigo_produto'],
             how='left'
-        ).fillna({'meta_kg_mes':0.0})
+        ).fillna({'meta_kg_mes':0})
+        # Chamaremos essa coluna de meta_kg
         df_merge.rename(columns={'meta_kg_mes':'meta_kg'}, inplace=True)
         
-        # 6) Calcula faixas Kg_T1, Kg_T2, Kg_T3
+        # 6) Calcula faixas Kg_T1, Kg_T2, Kg_T3 (igual ao seu código original)
         def calcular_faixas(row):
             total = row['Total_Kg_Mes']
             prev  = row['Total_Kg_Ant']
             meta  = row['meta_kg']
+            # Se Total_Ant >= Meta: paga T1 até Total_Ant, T3 acima
             if prev >= meta:
                 kg_t1 = min(total, prev)
                 kg_t2 = 0
@@ -240,6 +248,7 @@ def calcular_comissoes_mensais(
         df_sum['mes'] = mes
         resultados.append(df_sum)
     
+    # Concatena todos os meses em um só DataFrame
     if resultados:
         df_annual = pd.concat(resultados, ignore_index=True)
     else:
@@ -259,10 +268,12 @@ def main():
     """)
     
     st.sidebar.header("📁 Importar dados")
+    # 1) Uploader da base de faturamento
     uploaded_fat = st.sidebar.file_uploader(
         "1) Carregue aqui o Excel da base de faturamento",
         type=["xlsx", "xls"], key="fat"
     )
+    # 2) Uploader das metas diárias (pode ter várias abas)
     uploaded_meta = st.sidebar.file_uploader(
         "2) Carregue aqui o Excel de metas diárias (pode ter várias abas)",
         type=["xlsx", "xls"], key="meta"
@@ -272,6 +283,7 @@ def main():
     df_metas_diarias = None
     df_meta_mensal  = None
     
+    # Se o usuário carregou o faturamento, converte para df
     if uploaded_fat:
         try:
             df_raw = pd.read_excel(uploaded_fat)
@@ -280,6 +292,7 @@ def main():
             st.sidebar.error(f"Falha ao ler Faturamento: {e}")
             df_fatur = None
     
+    # Se o usuário carregou o Excel de metas, “desempilha” e agrega mensal
     if uploaded_meta:
         try:
             df_metas_diarias = load_metas_excel(uploaded_meta)
@@ -289,6 +302,7 @@ def main():
             df_metas_diarias = None
             df_meta_mensal   = None
     
+    # Se faturamento e metas estiverem OK, preenche as variáveis de filtro
     distribuidores, anos, meses, produtos = [], [], [], []
     if df_fatur is not None:
         distribuidores = sorted(df_fatur['nome_distribuidor'].dropna().unique())
@@ -296,6 +310,7 @@ def main():
         meses = list(range(1, 13))
         produtos = sorted(df_fatur['codigo_produto'].dropna().unique())
     
+    # ==== Sidebar: filtros e parâmetros ====
     with st.sidebar.form(key="filtros_form"):
         st.subheader("📋 Filtros de análise")
         dist_selecionados = st.multiselect("Distribuidores", distribuidores, help="Selecione distribuidores")
@@ -317,7 +332,9 @@ def main():
         
         btn_calcular = st.form_submit_button("🔍 Calcular")
     
+    # Só executa se clicar em Calcular
     if btn_calcular:
+        # Verifica se tudo foi carregado
         if df_fatur is None:
             st.error("❌ Carregue o arquivo de faturamento antes de calcular.")
             return
@@ -330,8 +347,9 @@ def main():
         selected_mes      = mes_selecionado
         selected_produtos = prod_selecionados
         
-        # 1) Cálculo para o mês selecionado
+        # 1) Cálculo para o mês selecionado (igual ao original, mas puxando metas do df_meta_mensal)
         with st.spinner("Calculando mês selecionado..."):
+            # Faturamento corrente
             df_curr = df_fatur[
                 (df_fatur['nome_distribuidor'].isin(selected_dist)) &
                 (df_fatur['ano'] == selected_ano) &
@@ -354,6 +372,7 @@ def main():
                 axis=1
             )
             
+            # Faturamento anterior (ano-1, mesmo mês)
             df_prev = df_fatur[
                 (df_fatur['nome_distribuidor'].isin(selected_dist)) &
                 (df_fatur['ano'] == (selected_ano-1)) &
@@ -374,15 +393,18 @@ def main():
                 axis=1
             )
             
+            # Merge corrente x anterior
             df_merge = pd.merge(
                 df_current, df_prev_group,
                 on=['nome_distribuidor','codigo_produto'],
                 how='left'
             ).fillna({'Total_Kg_Ant':0,'Faturamento_Ant':0,'Preco_Kg_Ant':0})
             
+            # Δ
             df_merge['Delta_Kg'] = df_merge['Total_Kg_Mes'] - df_merge['Total_Kg_Ant']
             df_merge['Delta_R']  = df_merge['Faturamento_Mes'] - df_merge['Faturamento_Ant']
             
+            # Agrega meta mensal (ano=selected_ano, mes=selected_mes)
             df_meta_mes_corrente = df_meta_mensal[
                 (df_meta_mensal['ano'] == selected_ano) &
                 (df_meta_mensal['mes'] == selected_mes)
@@ -392,9 +414,10 @@ def main():
                 df_meta_mes_corrente,
                 on=['nome_distribuidor','codigo_produto'],
                 how='left'
-            ).fillna({'meta_kg_mes':0.0})
+            ).fillna({'meta_kg_mes':0})
             df_merge.rename(columns={'meta_kg_mes':'meta_kg'}, inplace=True)
             
+            # Calcular faixas de comissionamento (T1, T2, T3)
             def calcular_faixas(row):
                 total = row['Total_Kg_Mes']
                 prev  = row['Total_Kg_Ant']
@@ -421,6 +444,7 @@ def main():
                 faixas.columns = [c.strip() for c in faixas.columns]
                 df_merge[['Kg_T1','Kg_T2','Kg_T3']] = faixas[['Kg_T1','Kg_T2','Kg_T3']]
             
+            # Valores e comissões
             df_merge['Val_T1'] = df_merge['Kg_T1'] * df_merge['Preco_Kg_Mes']
             df_merge['Val_T2'] = df_merge['Kg_T2'] * df_merge['Preco_Kg_Mes']
             df_merge['Val_T3'] = df_merge['Kg_T3'] * df_merge['Preco_Kg_Mes']
@@ -430,11 +454,12 @@ def main():
             df_merge['Com_T3'] = df_merge['Val_T3'] * (pct3/100)
             df_merge['Comissao_R$'] = df_merge['Com_T1'] + df_merge['Com_T2'] + df_merge['Com_T3']
             
+            # Preparar tabela para exibição (mês selecionado)
             df_display = df_merge.copy()
             df_display['Distribuidor'] = df_display['nome_distribuidor']
             df_display['Produto']     = df_display['codigo_produto']
             df_display['Kg Ano Anterior'] = df_display['Total_Kg_Ant'].apply(lambda x: f"{x:,.0f}")
-            df_display['Meta Kg (mês)']   = df_display['meta_kg'].apply(lambda x: f"{x:,.2f}")
+            df_display['Meta Kg (mês)']   = df_display['meta_kg'].apply(lambda x: f"{x:,.0f}")
             df_display['Kg Mês']          = df_display['Total_Kg_Mes'].apply(lambda x: f"{x:,.0f}")
             df_display['Δ Kg']            = df_display['Delta_Kg'].apply(lambda x: f"{x:,.0f}")
             df_display['Kg Até Ano Anterior']    = df_display['Kg_T1'].apply(lambda x: f"{x:,.0f}")
@@ -451,6 +476,7 @@ def main():
             df_display['Comissão T3 (R$)'] = df_display['Com_T3'].apply(lambda x: f"R$ {x:,.2f}")
             df_display['Comissão Total (R$)'] = df_display['Comissao_R$'].apply(lambda x: f"R$ {x:,.2f}")
             
+            # Reordena colunas para exibição
             df_display = df_display[[
                 'Distribuidor','Produto','Kg Ano Anterior','Meta Kg (mês)','Kg Mês','Δ Kg',
                 'Kg Entre Ano Ant. e Meta','Kg Até Ano Anterior','Kg Acima da Meta',
@@ -460,6 +486,7 @@ def main():
                 'Comissão T3 (R$)','Comissão Total (R$)'
             ]]
         
+        # Exibe resultado do mês
         if df_display.empty:
             st.warning("❗ Nenhum dado encontrado para os filtros selecionados.")
         else:
@@ -468,7 +495,7 @@ def main():
             
             st.markdown("#### 📝 Legenda das Colunas (Mês Selecionado)")
             st.markdown("""
-            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado, já arredondadas a duas casas decimais.  
+            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado, já tratadas como inteiro (parte decimal descartada).  
             - **Kg Ano Anterior**: soma de `total kg` no mesmo mês do ano anterior.  
             - **Kg Mês**: soma de `total kg` para o mês selecionado.  
             - **Δ Kg**: diferença entre `Kg Mês` e `Kg Ano Anterior`.  
@@ -487,6 +514,7 @@ def main():
         
         st.markdown("---")
         st.markdown("**Totais Consolidados (Mês Selecionado)**")
+        # ---- Totais consolidados de cada distribuidor no mês selecionado ----
         totais_merge = (
             df_merge
             .groupby('nome_distribuidor', as_index=False)
@@ -515,7 +543,7 @@ def main():
         
         totais_merge['Kg Ano Anterior'] = totais_merge['Total_Kg_Ant'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Kg Mês']          = totais_merge['Total_Kg_Mes'].apply(lambda x: f"{x:,.0f}")
-        totais_merge['Meta Kg (mês)']   = totais_merge['Sum_Meta_Kg'].apply(lambda x: f"{x:,.2f}")
+        totais_merge['Meta Kg (mês)']   = totais_merge['Sum_Meta_Kg'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Preço Médio (R$/Kg)'] = totais_merge['Preco_Medio_Kg'].apply(lambda x: f"R$ {x:,.2f}")
         totais_merge['Kg Entre Ano Ant. e Meta'] = totais_merge.apply(
             lambda r: f"{max(r['Sum_Meta_Kg']-r['Total_Kg_Ant'],0):,.0f}", axis=1
@@ -548,7 +576,7 @@ def main():
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Kg Ano Anterior (Total)", f"{total_kg_ant_all:,.0f}")
         col2.metric("Kg Mês (Total)", f"{total_kg_mes_all:,.0f}")
-        col3.metric("Meta Kg (Total)", f"{total_meta_kg_all:,.2f}")
+        col3.metric("Meta Kg (Total)", f"{total_meta_kg_all:,.0f}")
         col4.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
         
         # ---- Definir cores para distribuidores ----
@@ -619,6 +647,7 @@ def main():
                 labels={'mes_str':'Mês','Comissao_Num':'Comissão (R$)'},
                 title=None
             )
+            # Anotações de total empilhado por mês
             df_total_mes = df_annual.groupby('mes_str', as_index=False).agg(Total_Mes=('Comissao_Num','sum'))
             for idx, row in df_total_mes.iterrows():
                 fig_annual.add_annotation(
