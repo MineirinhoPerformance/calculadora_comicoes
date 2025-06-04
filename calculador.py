@@ -57,9 +57,9 @@ def load_metas_excel(metas_file):
         
         # Identifica quais colunas são datas: formato DD/MM/AAAA
         # Vamos assumir que tudo que vier depois de 'COD PROD' são colunas de data
-        col_datas = df.columns.tolist()
-        idx_inicio_datas = col_datas.index('COD PROD') + 1
-        datas_cols = col_datas[idx_inicio_datas:]
+        colunas = df.columns.tolist()
+        idx_inicio_datas = colunas.index('COD PROD') + 1
+        datas_cols = colunas[idx_inicio_datas:]
         
         # Faz o melt para “desempilhar” as datas
         melt = df.melt(
@@ -70,12 +70,12 @@ def load_metas_excel(metas_file):
         )
         # Converte data_dia para datetime
         melt['data_dia'] = pd.to_datetime(melt['data_dia'], dayfirst=True, errors='coerce')
-        # Converte meta_kg_dia para float (virgula decimal possível)
+        # Converte meta_kg_dia para float (trata vírgula decimal e ponto de milhar)
         melt['meta_kg_dia'] = (
             melt['meta_kg_dia']
             .astype(str)
-            .str.replace('.', '', regex=False)  # remove pontos de milhar, se houver
-            .str.replace(',', '.', regex=False) # converte vírgula decimal para ponto
+            .str.replace('.', '', regex=False)   # remove pontos de milhar, se houver
+            .str.replace(',', '.', regex=False)  # converte vírgula decimal para ponto
         )
         melt['meta_kg_dia'] = pd.to_numeric(melt['meta_kg_dia'], errors='coerce').fillna(0.0)
         # Padroniza nomes
@@ -102,6 +102,7 @@ def aggregate_metas_mensais(df_metas):
       ['nome_distribuidor','codigo_produto','data_dia','meta_kg_dia']
     Retorna DataFrame com metas mensais:
       ['nome_distribuidor','codigo_produto','ano','mes','meta_kg_mes']
+      Onde 'meta_kg_mes' vem como inteiro (arredondado)
     """
     df = df_metas.copy()
     # Extrai ano e mês de cada data
@@ -113,6 +114,8 @@ def aggregate_metas_mensais(df_metas):
         .groupby(['nome_distribuidor','codigo_produto','ano','mes'], as_index=False)
         .agg(meta_kg_mes=('meta_kg_dia','sum'))
     )
+    # Converte meta_kg_mes para inteiro (arredondando)
+    df_mes['meta_kg_mes'] = df_mes['meta_kg_mes'].round(0).astype(int)
     # Garante strings consistentes
     df_mes['nome_distribuidor'] = df_mes['nome_distribuidor'].astype(str)
     df_mes['codigo_produto']    = df_mes['codigo_produto'].astype(str)
@@ -194,7 +197,7 @@ def calcular_comissoes_mensais(
             df_meta_mes_corrente,
             on=['nome_distribuidor','codigo_produto'],
             how='left'
-        ).fillna({'meta_kg_mes':0.0})
+        ).fillna({'meta_kg_mes':0})
         # Chamaremos essa coluna de meta_kg
         df_merge.rename(columns={'meta_kg_mes':'meta_kg'}, inplace=True)
         
@@ -241,7 +244,6 @@ def calcular_comissoes_mensais(
             df_merge
             .groupby('nome_distribuidor', as_index=False)
             .agg(**{'Comissao_R$': ('Comissao_R$', 'sum')})
-
         )
         df_sum['mes'] = mes
         resultados.append(df_sum)
@@ -412,7 +414,7 @@ def main():
                 df_meta_mes_corrente,
                 on=['nome_distribuidor','codigo_produto'],
                 how='left'
-            ).fillna({'meta_kg_mes':0.0})
+            ).fillna({'meta_kg_mes':0})
             df_merge.rename(columns={'meta_kg_mes':'meta_kg'}, inplace=True)
             
             # Calcular faixas de comissionamento (T1, T2, T3)
@@ -493,7 +495,7 @@ def main():
             
             st.markdown("#### 📝 Legenda das Colunas (Mês Selecionado)")
             st.markdown("""
-            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado.  
+            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado, convertida para inteiro.  
             - **Kg Ano Anterior**: soma de `total kg` no mesmo mês do ano anterior.  
             - **Kg Mês**: soma de `total kg` para o mês selecionado.  
             - **Δ Kg**: diferença entre `Kg Mês` e `Kg Ano Anterior`.  
@@ -566,9 +568,9 @@ def main():
         st.write(totais_exib)
         
         # ---- Cards de Totais Consolidados ----
-        total_kg_ant_all = totais_merge['Total_Kg_Ant'].sum()
-        total_kg_mes_all = totais_merge['Total_Kg_Mes'].sum()
-        total_meta_kg_all= totais_merge['Sum_Meta_Kg'].sum()
+        total_kg_ant_all  = totais_merge['Total_Kg_Ant'].sum()
+        total_kg_mes_all  = totais_merge['Total_Kg_Mes'].sum()
+        total_meta_kg_all = totais_merge['Sum_Meta_Kg'].sum()
         total_comissao_all = totais_merge['Comissao_Total'].sum()
         
         col1, col2, col3, col4 = st.columns(4)
