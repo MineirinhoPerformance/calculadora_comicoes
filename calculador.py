@@ -78,8 +78,6 @@ def load_metas_excel(metas_file):
             .str.replace(',', '.', regex=False)  # converte vírgula decimal para ponto
         )
         melt['meta_kg_dia'] = pd.to_numeric(melt['meta_kg_dia'], errors='coerce').fillna(0.0)
-        # ** Ajuste: truncar para inteiro (descartar parte decimal ) **
-        melt['meta_kg_dia'] = melt['meta_kg_dia'].apply(lambda x: int(x))
         # Padroniza nomes
         melt.rename(columns={'NOME DISTRIBUIDOR': 'nome_distribuidor', 
                              'COD PROD': 'codigo_produto'}, inplace=True)
@@ -104,18 +102,20 @@ def aggregate_metas_mensais(df_metas):
       ['nome_distribuidor','codigo_produto','data_dia','meta_kg_dia']
     Retorna DataFrame com metas mensais:
       ['nome_distribuidor','codigo_produto','ano','mes','meta_kg_mes']
-      Onde 'meta_kg_mes' é soma dos valores inteiros de cada dia
+      Onde 'meta_kg_mes' vem como inteiro (arredondado)
     """
     df = df_metas.copy()
     # Extrai ano e mês de cada data
     df['ano'] = df['data_dia'].dt.year
     df['mes'] = df['data_dia'].dt.month
-    # Agrupa e soma (já são inteiros)
+    # Agrupa e soma
     df_mes = (
         df
         .groupby(['nome_distribuidor','codigo_produto','ano','mes'], as_index=False)
         .agg(meta_kg_mes=('meta_kg_dia','sum'))
     )
+    # Converte meta_kg_mes para inteiro (arredondando)
+    df_mes['meta_kg_mes'] = df_mes['meta_kg_mes'].round(0).astype(int)
     # Garante strings consistentes
     df_mes['nome_distribuidor'] = df_mes['nome_distribuidor'].astype(str)
     df_mes['codigo_produto']    = df_mes['codigo_produto'].astype(str)
@@ -174,7 +174,7 @@ def calcular_comissoes_mensais(
             axis=1
         )
         
-        # 3) Faz merge entre corrente e anterior
+        # 3) Faz merge between corrente e anterior
         df_merge = pd.merge(
             df_current, df_prev_group,
             on=['nome_distribuidor','codigo_produto'],
@@ -259,7 +259,7 @@ def calcular_comissoes_mensais(
 # Fluxo principal
 # -------------------------------------------------------
 def main():
-    st.title("📊 Calculadora de Comissões por KG")
+    st.title("📊 Calculadora de Comissões por KG (sem DB)")
 
     st.markdown("""
     Este aplicativo calcula comissões mensais e anual com base em:
@@ -495,7 +495,7 @@ def main():
             
             st.markdown("#### 📝 Legenda das Colunas (Mês Selecionado)")
             st.markdown("""
-            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado, já tratadas como inteiro (parte decimal descartada).  
+            - **Meta Kg (mês)**: soma das metas diárias (do Excel de metas) para aquele distribuidor/sku no mês selecionado, convertida para inteiro.  
             - **Kg Ano Anterior**: soma de `total kg` no mesmo mês do ano anterior.  
             - **Kg Mês**: soma de `total kg` para o mês selecionado.  
             - **Δ Kg**: diferença entre `Kg Mês` e `Kg Ano Anterior`.  
