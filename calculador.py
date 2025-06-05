@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 
-
 # -------------------------------------------------------
 # Configurar a página (primeiro comando do Streamlit)
 # -------------------------------------------------------
@@ -38,18 +37,8 @@ def load_faturamento(df_fatur):
 # -------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_metas(metas_file):
-    """
-    Lê um arquivo de metas que pode ser CSV (sep=";") ou Excel.
-    Cada aba (ou a tabela única, no caso de CSV) deve conter:
-      NOME DISTRIBUIDOR | COD PROD | 01/01/2025 | 02/01/2025 | ...
-    Retorna um DataFrame com colunas:
-      ['nome_distribuidor', 'codigo_produto', 'data_dia', 'meta_kg_dia']
-      Onde meta_kg_dia é float arredondado a duas casas decimais.
-    """
-    # Detecta extensão e carrega adequadamente
     name = metas_file.name.lower()
     if name.endswith('.csv'):
-        # CSV usa ";" como separador, e no seu caso o ponto já é o separador decimal
         df_raw = pd.read_csv(metas_file, sep=';', dtype=str)
         sheets = {'sheet1': df_raw}
     else:
@@ -58,9 +47,7 @@ def load_metas(metas_file):
     lista_metas = []
     for sheet_name, df_raw in sheets.items():
         df = df_raw.copy()
-        # Normaliza colunas
         df.columns = df.columns.str.strip()
-        # Verifica colunas mínimas
         if 'NOME DISTRIBUIDOR' not in df.columns or 'COD PROD' not in df.columns:
             continue
 
@@ -68,31 +55,22 @@ def load_metas(metas_file):
         idx_inicio_datas = colunas.index('COD PROD') + 1
         datas_cols = colunas[idx_inicio_datas:]
 
-        # “Desempilha” datas
         melt = df.melt(
             id_vars=['NOME DISTRIBUIDOR', 'COD PROD'],
             value_vars=datas_cols,
             var_name='data_dia',
             value_name='meta_kg_dia'
         )
-        # Converte data_dia para datetime
         melt['data_dia'] = pd.to_datetime(melt['data_dia'], dayfirst=True, errors='coerce')
 
-        # — Limpeza e conversão de meta_kg_dia para float —
-        # 1) Passamos para string
-        # 2) Tiramos as vírgulas que forem apenas separadores de milhar (",")
-        # 3) Mantemos o ponto como separador decimal (no seu caso, o CSV já vem assim)
-        # 4) Convertemos para float
         melt['meta_kg_dia'] = (
             melt['meta_kg_dia']
             .astype(str)
-            .str.replace(',', '', regex=False)      # remove vírgulas de milhar, se houver
+            .str.replace(',', '', regex=False)
         )
         melt['meta_kg_dia'] = pd.to_numeric(melt['meta_kg_dia'], errors='coerce').fillna(0.0)
-        # Arredonda a duas casas decimais
         melt['meta_kg_dia'] = melt['meta_kg_dia'].round(2)
 
-        # Padroniza nomes
         melt.rename(columns={'NOME DISTRIBUIDOR': 'nome_distribuidor',
                              'COD PROD': 'codigo_produto'}, inplace=True)
 
@@ -112,13 +90,6 @@ def load_metas(metas_file):
 # -------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def aggregate_metas_mensais(df_metas):
-    """
-    Recebe DataFrame de metas diárias:
-      ['nome_distribuidor','codigo_produto','data_dia','meta_kg_dia']
-    Retorna DataFrame com metas mensais:
-      ['nome_distribuidor','codigo_produto','ano','mes','meta_kg_mes']
-      Onde 'meta_kg_mes' é soma dos valores arredondados a duas casas.
-    """
     df = df_metas.copy()
     df['ano'] = df['data_dia'].dt.year
     df['mes'] = df['data_dia'].dt.month
@@ -127,10 +98,8 @@ def aggregate_metas_mensais(df_metas):
         .groupby(['nome_distribuidor', 'codigo_produto', 'ano', 'mes'], as_index=False)
         .agg(meta_kg_mes=('meta_kg_dia', 'sum'))
     )
-    # Garante strings
     df_mes['nome_distribuidor'] = df_mes['nome_distribuidor'].astype(str)
     df_mes['codigo_produto']    = df_mes['codigo_produto'].astype(str)
-    # Arredonda novamente (caso a soma precise ajuste)
     df_mes['meta_kg_mes'] = df_mes['meta_kg_mes'].round(2)
     return df_mes
 
@@ -143,7 +112,7 @@ def calcular_comissoes_mensais(
 ):
     resultados = []
     for mes in range(1, 13):
-        # 1) Filtra faturamento do ano selecionado / mês / distribuidores / produtos
+        # 1) Filtro faturamento para o mês e ano
         df_curr = df_fatur[
             (df_fatur['nome_distribuidor'].isin(selected_dist)) &
             (df_fatur['ano'] == selected_ano) &
@@ -166,7 +135,7 @@ def calcular_comissoes_mensais(
             axis=1
         )
 
-        # 2) Filtra faturamento do ano anterior / mesmo mês (para Δ)
+        # 2) Faturamento ano anterior (mesmo mês) para Δ
         df_prev = df_fatur[
             (df_fatur['nome_distribuidor'].isin(selected_dist)) &
             (df_fatur['ano'] == (selected_ano - 1)) &
@@ -194,11 +163,11 @@ def calcular_comissoes_mensais(
             how='left'
         ).fillna({'Total_Kg_Ant': 0, 'Faturamento_Ant': 0, 'Preco_Kg_Ant': 0})
 
-        # 4) Calcula Δ
+        # 4) Cálculo de Δ
         df_merge['Delta_Kg'] = df_merge['Total_Kg_Mes'] - df_merge['Total_Kg_Ant']
         df_merge['Delta_R']  = df_merge['Faturamento_Mes'] - df_merge['Faturamento_Ant']
 
-        # 5) Agrega meta mensal (ano=selected_ano, mes=mes)
+        # 5) Insere meta mensais
         df_meta_mes_corrente = df_meta_mensal[
             (df_meta_mensal['ano'] == selected_ano) &
             (df_meta_mensal['mes'] == mes)
@@ -211,7 +180,7 @@ def calcular_comissoes_mensais(
         ).fillna({'meta_kg_mes': 0.0})
         df_merge.rename(columns={'meta_kg_mes': 'meta_kg'}, inplace=True)
 
-        # 6) Calcula faixas Kg_T1, Kg_T2, Kg_T3
+        # 6) Cálculo das faixas Kg_T1, Kg_T2, Kg_T3
         def calcular_faixas(row):
             total = row['Total_Kg_Mes']
             prev  = row['Total_Kg_Ant']
@@ -238,7 +207,7 @@ def calcular_comissoes_mensais(
             faixas.columns = [c.strip() for c in faixas.columns]
             df_merge[['Kg_T1', 'Kg_T2', 'Kg_T3']] = faixas[['Kg_T1', 'Kg_T2', 'Kg_T3']]
 
-        # 7) Calcula valores e comissões
+        # 7) Valores e comissões
         df_merge['Val_T1'] = df_merge['Kg_T1'] * df_merge['Preco_Kg_Mes']
         df_merge['Val_T2'] = df_merge['Kg_T2'] * df_merge['Preco_Kg_Mes']
         df_merge['Val_T3'] = df_merge['Kg_T3'] * df_merge['Preco_Kg_Mes']
@@ -248,7 +217,7 @@ def calcular_comissoes_mensais(
         df_merge['Com_T3'] = df_merge['Val_T3'] * (pct3 / 100)
         df_merge['Comissao_R$'] = df_merge['Com_T1'] + df_merge['Com_T2'] + df_merge['Com_T3']
 
-        # 8) Agrupa apenas comissão total por distribuidor
+        # 8) Agrupa a comissão total por distribuidor
         df_sum = (
             df_merge
             .groupby('nome_distribuidor', as_index=False)
@@ -276,12 +245,10 @@ def main():
     """)
 
     st.sidebar.header("📁 Importar dados")
-    # 1) Uploader da base de faturamento
     uploaded_fat = st.sidebar.file_uploader(
         "1) Carregue aqui o Excel da base de faturamento",
         type=["xlsx", "xls"], key="fat"
     )
-    # 2) Uploader das metas diárias (CSV ou Excel)
     uploaded_meta = st.sidebar.file_uploader(
         "2) Carregue aqui o arquivo de metas diárias (CSV ou Excel)",
         type=["csv", "xlsx", "xls"], key="meta"
@@ -291,7 +258,6 @@ def main():
     df_metas_diarias = None
     df_meta_mensal  = None
 
-    # Se o usuário carregou o faturamento, converte para df
     if uploaded_fat:
         try:
             df_raw = pd.read_excel(uploaded_fat)
@@ -300,7 +266,6 @@ def main():
             st.sidebar.error(f"Falha ao ler Faturamento: {e}")
             df_fatur = None
 
-    # Se o usuário carregou o arquivo de metas, “desempilha” e agrega mensal
     if uploaded_meta:
         try:
             df_metas_diarias = load_metas(uploaded_meta)
@@ -310,7 +275,6 @@ def main():
             df_metas_diarias = None
             df_meta_mensal   = None
 
-    # Se faturamento e metas estiverem OK, preenche as variáveis de filtro
     distribuidores, anos, meses, produtos = [], [], [], []
     if df_fatur is not None:
         distribuidores = sorted(df_fatur['nome_distribuidor'].dropna().unique())
@@ -318,7 +282,6 @@ def main():
         meses = list(range(1, 13))
         produtos = sorted(df_fatur['codigo_produto'].dropna().unique())
 
-    # ==== Sidebar: filtros e parâmetros ====
     with st.sidebar.form(key="filtros_form"):
         st.subheader("📋 Filtros de análise")
         dist_selecionados = st.multiselect("Distribuidores", distribuidores, help="Selecione distribuidores")
@@ -344,9 +307,7 @@ def main():
 
         btn_calcular = st.form_submit_button("🔍 Calcular")
 
-    # Só executa se clicar em Calcular
     if btn_calcular:
-        # Verifica se tudo foi carregado
         if df_fatur is None:
             st.error("❌ Carregue o arquivo de faturamento antes de calcular.")
             return
@@ -359,7 +320,9 @@ def main():
         selected_mes      = mes_selecionado
         selected_produtos = prod_selecionados
 
-        # 1) Cálculo para o mês selecionado
+        # -------------------------------------------------------
+        # Cálculo Mês Selecionado
+        # -------------------------------------------------------
         with st.spinner("Calculando mês selecionado..."):
             df_curr = df_fatur[
                 (df_fatur['nome_distribuidor'].isin(selected_dist)) &
@@ -480,14 +443,16 @@ def main():
             df_display['Comissão T3 (R$)'] = df_display['Com_T3'].apply(lambda x: f"R$ {x:,.2f}")
             df_display['Comissão Total (R$)'] = df_display['Comissao_R$'].apply(lambda x: f"R$ {x:,.2f}")
 
-            df_display = df_display[[
-                'Distribuidor','Produto','Kg Ano Anterior','Meta Kg (mês)','Kg Mês','Δ Kg',
-                'Kg Entre Ano Ant. e Meta','Kg Até Ano Anterior','Kg Acima da Meta',
-                'Preço/kg Mês (R$)','Valor Até Ano Anterior (R$)',
-                'Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
-                'Comissão T1 (R$)','Comissão T2 (R$)',
-                'Comissão T3 (R$)','Comissão Total (R$)'
-            ]]
+            df_display = df_display[
+                [
+                    'Distribuidor','Produto','Kg Ano Anterior','Meta Kg (mês)','Kg Mês','Δ Kg',
+                    'Kg Entre Ano Ant. e Meta','Kg Até Ano Anterior','Kg Acima da Meta',
+                    'Preço/kg Mês (R$)','Valor Até Ano Anterior (R$)',
+                    'Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
+                    'Comissão T1 (R$)','Comissão T2 (R$)',
+                    'Comissão T3 (R$)','Comissão Total (R$)'
+                ]
+            ]
 
         if df_display.empty:
             st.warning("❗ Nenhum dado encontrado para os filtros selecionados.")
@@ -514,11 +479,13 @@ def main():
             - **Comissão Total (R$)**: soma de todas as faixas.
             """)
 
-        # -------------------------------------------------------
+                # -------------------------------------------------------
         # Totais Consolidados (Mês Selecionado)
         # -------------------------------------------------------
         st.markdown("---")
         st.markdown("**Totais Consolidados (Mês Selecionado)**")
+
+        # 1) Agrupa totais, somando T1, T2, T3, etc.
         totais_merge = (
             df_merge
             .groupby('nome_distribuidor', as_index=False)
@@ -540,13 +507,20 @@ def main():
             )
             .rename(columns={'nome_distribuidor':'Distribuidor'})
         )
+
+        # 2) Calcular Δ Kg total por distribuidor
+        totais_merge['Delta_Kg_Total'] = totais_merge['Total_Kg_Mes'] - totais_merge['Total_Kg_Ant']
+
+        # 3) Preço médio (já existente)
         totais_merge['Preco_Medio_Kg'] = totais_merge.apply(
             lambda r: (r['Total_Fat_Mes']/r['Total_Kg_Mes']) if r['Total_Kg_Mes']>0 else 0,
             axis=1
         )
 
+        # 4) Formatação das colunas numéricas para exibição
         totais_merge['Kg Ano Anterior'] = totais_merge['Total_Kg_Ant'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Kg Mês']          = totais_merge['Total_Kg_Mes'].apply(lambda x: f"{x:,.0f}")
+        totais_merge['Δ Kg']            = totais_merge['Delta_Kg_Total'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Meta Kg (mês)']   = totais_merge['Sum_Meta_Kg'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Preço Médio (R$/Kg)'] = totais_merge['Preco_Medio_Kg'].apply(lambda x: f"R$ {x:,.2f}")
         totais_merge['Kg Entre Ano Ant. e Meta'] = totais_merge.apply(
@@ -562,28 +536,72 @@ def main():
         totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
         totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
-        totais_exib = totais_merge[[
-            'Distribuidor',
-            'Kg Ano Anterior','Kg Mês','Meta Kg (mês)','Kg Entre Ano Ant. e Meta',
-            'Preço Médio (R$/Kg)','Kg Até Ano Anterior','Kg Acima da Meta',
-            'Valor Até Ano Anterior (R$)','Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
-            'Comissão T1 (R$)','Comissão T2 (R$)','Comissão T3 (R$)','Comissão Total (R$)'
-        ]]
+        # 5) Selecionar colunas para exibir em tabela
+        totais_exib = totais_merge[
+            [
+                'Distribuidor',
+                'Kg Ano Anterior','Kg Mês','Δ Kg','Meta Kg (mês)','Kg Entre Ano Ant. e Meta',
+                'Preço Médio (R$/Kg)','Kg Até Ano Anterior','Kg Acima da Meta',
+                'Valor Até Ano Anterior (R$)','Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
+                'Comissão T1 (R$)','Comissão T2 (R$)','Comissão T3 (R$)','Comissão Total (R$)'
+            ]
+        ]
         st.write(totais_exib)
 
-        # ---- Cards de Totais Consolidados ----
-        total_kg_ant_all  = totais_merge['Total_Kg_Ant'].sum()
-        total_kg_mes_all  = totais_merge['Total_Kg_Mes'].sum()
-        total_meta_kg_all = totais_merge['Sum_Meta_Kg'].sum()
-        total_comissao_all = totais_merge['Comissao_Total'].sum()
+        # 6) Cálculo dos totais gerais (agregado de todas as linhas)
+        total_kg_ant_all    = totais_merge['Total_Kg_Ant'].sum()
+        total_kg_mes_all    = totais_merge['Total_Kg_Mes'].sum()
+        total_delta_kg_all  = totais_merge['Delta_Kg_Total'].sum()
+        total_meta_kg_all   = totais_merge['Sum_Meta_Kg'].sum()
+        total_comissao_all  = totais_merge['Comissao_Total'].sum()
 
-        col1, col2, col3, col4 = st.columns(4)
+        # 7) Exibir métricas: agora com 5 colunas (incluindo Δ Kg)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Kg Ano Anterior (Total)", f"{total_kg_ant_all:,.0f}")
         col2.metric("Kg Mês (Total)", f"{total_kg_mes_all:,.0f}")
-        col3.metric("Meta Kg (Total)", f"{total_meta_kg_all:,.0f}")
-        col4.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
+        col3.metric("Δ Kg (Total)", f"{total_delta_kg_all:,.0f}")
+        col4.metric("Meta Kg (Total)", f"{total_meta_kg_all:,.0f}")
+        col5.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
 
-        # ---- Definir cores para distribuidores ----
+        # -------------------------------------------------------
+        #  Definindo as cores para cada distribuidor ANTES de usar no gráfico
+        # -------------------------------------------------------
+        color_sequence = [
+            "#FF5733","#33FF57","#3357FF","#FF33A1","#A133FF",
+            "#33FFF5","#FF8C33","#8CFF33","#338CFF","#FF338C",
+            "#33A1FF","#A1FF33","#FF3333","#33FF33","#3333FF",
+            "#FF33FF","#33FFFF","#FFFF33","#D35400","#27AE60",
+            "#2980B9","#8E44AD","#16A085","#F39C12","#C0392B"
+        ]
+        n_dist = len(selected_dist)
+        if n_dist > len(color_sequence):
+            st.warning(f"Há mais distribuidores ({n_dist}) do que cores disponíveis ({len(color_sequence)}). Algumas cores poderão se repetir.")
+        # Aqui criamos o mapeamento de cada distribuidor para uma cor
+        dist_colors = { dist: color_sequence[i % len(color_sequence)] for i, dist in enumerate(selected_dist) }
+
+        # 8) (Opcional) Gráfico de Δ Kg por distribuidor
+        fig_delta = px.bar(
+            totais_merge,
+            x='Distribuidor',
+            y='Delta_Kg_Total',
+            text='Delta_Kg_Total',
+            color='Distribuidor',
+            color_discrete_map=dist_colors,  # AGORA `dist_colors` já existe
+            labels={'Delta_Kg_Total':'Δ Kg'}
+        )
+        fig_delta.update_traces(
+            texttemplate='%{text:,.0f}',
+            textposition='outside',
+            marker_line_width=0.5
+        )
+        fig_delta.update_layout(
+            yaxis_tickformat=",.0f",
+            margin=dict(t=20,b=20,l=40,r=20),
+            xaxis_title="Distribuidor", yaxis_title="Δ Kg",
+            showlegend=False
+        )
+
+        # Cores para distribuidores
         color_sequence = [
             "#FF5733","#33FF57","#3357FF","#FF33A1","#A133FF",
             "#33FFF5","#FF8C33","#8CFF33","#338CFF","#FF338C",
@@ -599,9 +617,10 @@ def main():
         # -------------------------------------------------------
         #  Gráfico de Comissões por Distribuidor (Mês Selecionado)
         # -------------------------------------------------------
+        st.markdown("---")
         st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
         df_graf_mes = totais_merge[['Distribuidor','Comissao_Total']].copy()
-        df_graf_mes['Comissao_Num'] = totais_merge['Comissao_Total'].replace(r'[R\$,]', '', regex=True).astype(float)
+        df_graf_mes['Comissao_Num'] = totais_merge['Comissao_Total'].replace(r'[R\\$,]', '', regex=True).astype(float)
 
         fig_mes = px.bar(
             df_graf_mes,
@@ -626,13 +645,7 @@ def main():
         )
         st.plotly_chart(fig_mes, use_container_width=True)
 
-        # -------------------------------------------------------
-        #  Gráfico Anual de Comissões por Mês, com Projeção
-        # -------------------------------------------------------
-        st.markdown("---")
-        st.markdown("**Gráfico Anual de Comissões por Mês e Distribuidor (com Projeções)**")
 
-        # Primeiro: calcula as comissões efetivas para cada mês do ano selecionado
         df_annual = calcular_comissoes_mensais(
             df_fatur, df_meta_mensal,
             selected_dist, selected_produtos,
@@ -643,25 +656,20 @@ def main():
             st.info("Não há dados de comissão anual para os filtros atuais.")
             return
 
-        # Converte mês para string "MM"
         df_annual['mes_str'] = df_annual['mes'].apply(lambda x: f"{x:02d}")
         df_annual.rename(columns={'nome_distribuidor':'Distribuidor','Comissao_R$':'Comissao_Num'}, inplace=True)
 
-        # Soma as comissões efetivas por mês (todas distribuidoras) para plotar as barras reais
         df_total_mes = df_annual.groupby('mes_str', as_index=False).agg(Total_Efetiva=('Comissao_Num','sum'))
 
-        # ------------- PREPARAR PROJEÇÕES PARA MESES FUTUROS (DETALHADO COM CORES HACHURADAS) ----------------
         hoje = datetime.now()
         ano_atual = hoje.year
         mes_atual = hoje.month if selected_ano == ano_atual else 12
 
-        # DataFrame para armazenar, para cada mês futuro, Com_Proj_T1, Com_Proj_T2 e Com_Proj_T3
         df_proj_detalhado = pd.DataFrame(columns=[
             'mes', 'mes_str', 'Com_Proj_T1', 'Com_Proj_T2', 'Com_Proj_T3'
         ])
 
         if selected_ano == ano_atual:
-            # 1) Agrupa faturamento do ano anterior (selected_ano - 1) por distribuidor/produto/mês
             df_prev_full = df_fatur[
                 (df_fatur['nome_distribuidor'].isin(selected_dist)) &
                 (df_fatur['ano'] == (selected_ano - 1))
@@ -681,21 +689,17 @@ def main():
                 axis=1
             )
 
-            # 2) Obtém metas mensais completas para o ano selecionado
-            df_meta_full = df_meta_mensal.copy()  # contém ['nome_distribuidor','codigo_produto','ano','mes','meta_kg_mes']
+            df_meta_full = df_meta_mensal.copy()
 
             lista_proj_detalhada = []
             for mes in range(mes_atual + 1, 13):
-                # Filtra faturamento anterior para este mês
                 df_prev_m = df_prev_group[df_prev_group['mes'] == mes].copy()
 
-                # Filtra meta deste mês para o ano corrente
                 df_meta_m = df_meta_full[
                     (df_meta_full['ano'] == selected_ano) &
                     (df_meta_full['mes'] == mes)
                 ][['nome_distribuidor', 'codigo_produto', 'meta_kg_mes']].copy()
 
-                # Faz merge entre prev e meta
                 df_merge_proj = pd.merge(
                     df_prev_m,
                     df_meta_m,
@@ -708,13 +712,12 @@ def main():
                     'meta_kg_mes': 0.0
                 })
 
-                # Função para calcular cada componente de comissão projetada (T1, T2 e T3)
                 def calcular_comissoes_proj_detalhado(row):
                     prev = row['Total_Kg_Ant']
                     meta = row['meta_kg_mes']
                     preco = row['Preco_Kg_Ant']
 
-                    # Assume que o faturamento futuro será igual à meta
+                    # Assume faturamento futuro igual à meta
                     if prev >= meta:
                         kg_t1 = meta
                         kg_t2 = 0
@@ -726,7 +729,7 @@ def main():
 
                     val_t1 = kg_t1 * preco
                     val_t2 = kg_t2 * preco
-                    val_t3 = kg_t3 * preco  # será zero, mas mantido para estrutura
+                    val_t3 = kg_t3 * preco
 
                     com_t1 = val_t1 * (pct1 / 100)
                     com_t2 = val_t2 * (pct2 / 100)
@@ -763,104 +766,16 @@ def main():
                     'mes', 'mes_str', 'Com_Proj_T1', 'Com_Proj_T2', 'Com_Proj_T3'
                 ])
 
-        # ---------- CONSTRUIR GRÁFICO COM BARRAS REAIS E PROJETADAS (COM CORES HACHURADAS DIFERENTES) -------------
-        fig_annual_detalhado = go.Figure()
-
-        # 1) Trace das comissões efetivas (barras sólidas)
-        fig_annual_detalhado.add_trace(
-            go.Bar(
-                x=df_total_mes['mes_str'],
-                y=df_total_mes['Total_Efetiva'],
-                name='Comissão Efetiva',
-                marker_color='steelblue',
-                text=[f"R$ {v:,.2f}" for v in df_total_mes['Total_Efetiva']],
-                textposition='outside'
-            )
-        )
-
-        # 2) Traces das projeções detalhadas (barras empilhadas com hachuras/colorizações diferentes)
-        if not df_proj_detalhado.empty:
-            # T1 projetada (hachura padrão "/")
-            fig_annual_detalhado.add_trace(
-                go.Bar(
-                    x=df_proj_detalhado['mes_str'],
-                    y=df_proj_detalhado['Com_Proj_T1'],
-                    name='Proj. T1',
-                    marker_color='lightgray',
-                    marker_pattern=dict(shape='/', size=6, solidity=0.5),
-                    opacity=0.7,
-                    text=[f"R$ {v:,.2f}" for v in df_proj_detalhado['Com_Proj_T1']],
-                    textposition='inside'
-                )
-            )
-            # T2 projetada (hachura "\" em cor levemente mais escura)
-            fig_annual_detalhado.add_trace(
-                go.Bar(
-                    x=df_proj_detalhado['mes_str'],
-                    y=df_proj_detalhado['Com_Proj_T2'],
-                    name='Proj. T2',
-                    marker_color='darkgray',
-                    marker_pattern=dict(shape='x', size=6, solidity=0.1),
-                    opacity=0.7,
-                    text=[f"R$ {v:,.2f}" for v in df_proj_detalhado['Com_Proj_T2']],
-                    textposition='inside'
-                )
-            )
-            # T3 projetada (hachura "x" em cor ainda mais escura)
-            fig_annual_detalhado.add_trace(
-                go.Bar(
-                    x=df_proj_detalhado['mes_str'],
-                    y=df_proj_detalhado['Com_Proj_T3'],
-                    name='Proj. T3',
-                    marker_color='gray',
-                    marker_pattern=dict(shape='\\', size=6, solidity=0.2),
-                    opacity=0.7,
-                    text=[f"R$ {v:,.2f}" for v in df_proj_detalhado['Com_Proj_T3']],
-                    textposition='inside'
-                )
-            )
-
-            # 3) Anotações com o valor total projetado (T1+T2+T3) acima de cada barra futura
-            for idx, row in df_proj_detalhado.iterrows():
-                total_mes = row['Com_Proj_T1'] + row['Com_Proj_T2'] + row['Com_Proj_T3']
-                fig_annual_detalhado.add_annotation(
-                    x=row['mes_str'],
-                    y=total_mes * 1.02,
-                    text=f"R$ {total_mes:,.2f}",
-                    showarrow=False,
-                    font=dict(size=11, color="black"),
-                    bgcolor="rgba(255,255,255,0.7)"
-                )
-
-        # 4) Layout final (barras empilhadas em “stack”)
-        fig_annual_detalhado.update_layout(
-            barmode='stack',
-            title_text=None,
-            xaxis_title="Mês",
-            yaxis_title="Comissão (R$)",
-            yaxis_tickformat=",.2f",
-            margin=dict(t=20, b=20, l=40, r=20),
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-        )
-
-        st.plotly_chart(fig_annual_detalhado, use_container_width=True)
 
         # -------------------------------------------------------
-        #  Cálculo e Gráfico da Média Trimestral de Comissões (barras)
+        #  Cálculo e Gráfico da Média Trimestral de Comissões (barras + linha anual)
         # -------------------------------------------------------
-        # Objetivo: calcular a média móvel de 3 meses sobre a sequência completa de comissões
-        # (real até o mês atual e projetado para meses futuros), levando em consideração
-        # valores de faturamento a partir de novembro do ano anterior para compor a média de janeiro, etc.
-        #
-        # 1) Obter comissões mensais do ano anterior para meses 11 e 12
-        # -------------------------------------------------------------
         df_prev_year = calcular_comissoes_mensais(
             df_fatur, df_meta_mensal,
             selected_dist, selected_produtos,
             pct1, pct2, pct3,
             selected_ano - 1
         )
-        # Agrupa comissões por mês no ano anterior
         if not df_prev_year.empty:
             df_prev_year['mes_str'] = df_prev_year['mes'].apply(lambda x: f"{x:02d}")
             df_prev_year.rename(columns={'Comissao_R$': 'Comissao_Num'}, inplace=True)
@@ -871,21 +786,14 @@ def main():
             )
         else:
             df_total_prev = pd.DataFrame(columns=['mes_str', 'Com_Total'])
-        # Garante zeros para meses faltantes
+
         all_months = [f"{m:02d}" for m in range(1, 13)]
         df_total_prev = df_total_prev.set_index('mes_str').reindex(all_months, fill_value=0.0).reset_index()
 
-        # Extrai valor de novembro e dezembro do ano anterior
         prev_nov = float(df_total_prev.loc[df_total_prev['mes_str'] == '11', 'Com_Total'].iloc[0])
         prev_dec = float(df_total_prev.loc[df_total_prev['mes_str'] == '12', 'Com_Total'].iloc[0])
 
-
-        # 2) Construir série completa de comissões para o ano atual (mês a mês)
-        # ---------------------------------------------------------------------
-        # df_total_mes já contém Total_Efetiva para cada mês real do ano atual
-        # Primeiro, criamos uma lista de 12 valores Com_Full, para cada mês "01" a "12":
-        #   - Se mês ≤ mes_atual: Com_Full = Total_Efetiva (real)
-        #   - Se mês > mes_atual:  Com_Full = soma(Com_Proj_T1 + Com_Proj_T2 + Com_Proj_T3)
+        # Série completa de comissões no ano atual (real até mes_atual, proj nos meses futuros)
         df_combinado = pd.DataFrame({'mes_str': all_months})
         df_combinado = df_combinado.merge(
             df_total_mes.rename(columns={'Total_Efetiva': 'Comissao_Real'}),
@@ -893,7 +801,6 @@ def main():
         )
         df_combinado['Comissao_Real'] = df_combinado['Comissao_Real'].fillna(0.0)
 
-        # Calcula comissão projetada total para meses futuros
         df_combinado['Comissao_Proj'] = 0.0
         if selected_ano == ano_atual and not df_proj_detalhado.empty:
             df_proj_total = df_proj_detalhado.copy()
@@ -908,7 +815,6 @@ def main():
                     df_combinado['mes_str'] == mes_fut, 'Comissao_Proj'
                 ] = row['Com_Total_Proj']
 
-        # Cria lista Com_Full de 12 valores
         def get_com_full(r):
             m = int(r['mes_str'])
             if m <= mes_atual:
@@ -918,22 +824,24 @@ def main():
 
         df_combinado['Comissao_Full'] = df_combinado.apply(get_com_full, axis=1)
 
-        # 3) Construir lista estendida incluindo novembro e dezembro do ano anterior
-        # ---------------------------------------------------------------------------
-        # Índices: 0->nov_prev, 1->dec_prev, 2->jan, 3->fev, ..., 13->dez
+        # Lista estendida incluindo nov/dez do ano anterior
         extended = [prev_nov, prev_dec] + df_combinado['Comissao_Full'].tolist()
+        extended_month_labels = [f"11_{selected_ano-1}", f"12_{selected_ano-1}"] + [f"{m}_{selected_ano}" for m in all_months]
 
-        # 4) Calcular médias móveis de 3 meses ao longo de extended
-        # --------------------------------------------------------
+        # Cálculo de média móvel 3 meses e tooltip
         medias = []
+        hover_infos = []
         for i in range(2, len(extended)):
-            window = extended[i-2:i+1]
-            medias.append(sum(window) / 3.0)
-        # Agora medias é lista de comprimento 12, correspondendo a meses "01" a "12"
+            window_vals = extended[i-2:i+1]
+            window_labels = extended_month_labels[i-2:i+1]
+            medias.append(sum(window_vals) / 3.0)
+            info_lines = []
+            for lbl, val in zip(window_labels, window_vals):
+                info_lines.append(f"Mês {lbl}: R$ {val:,.2f}")
+            hover_infos.append("<br>".join(info_lines))
 
-        # 5) Criar colunas para exibir no gráfico
-        # ---------------------------------------
-        df_combinado['Media_3M'] = medias  # média móvel para cada mês "01"-"12"
+        df_combinado['Media_3M'] = medias
+        df_combinado['hover_info'] = hover_infos
         df_combinado['Media_3M_Display'] = df_combinado.apply(
             lambda r: r['Media_3M'] if int(r['mes_str']) <= mes_atual else np.nan,
             axis=1
@@ -943,23 +851,34 @@ def main():
             axis=1
         )
 
-        # 6) Monta o gráfico de barras
-        # -----------------------------
+        # Média anual (horizontal)
+        media_anual = df_combinado['Comissao_Full'].sum() / 12.0
+
+        # Exibe um card com o valor da média anual
+        st.markdown("---")
+        st.markdown("### 📊 Média Anual de Comissão")
+        st.metric(
+            label="Média Anual (R$/mês)",
+            value=f"R$ {media_anual:,.2f}"
+)
+
         fig_media = go.Figure()
 
-        # 6.1) Barras verdes para Média 3M nos meses reais (≤ mes_atual)
+        # Barras reais de Média 3M
         fig_media.add_trace(
             go.Bar(
                 x=df_combinado['mes_str'],
                 y=df_combinado['Media_3M_Display'],
                 name='Média 3M (Real)',
                 marker_color='rgba(0, 148, 185, 0.48)',
+                customdata=df_combinado['hover_info'],
+                hovertemplate='%{customdata}<extra></extra>',
                 text=[f"R$ {v:,.2f}" if not np.isnan(v) else "" for v in df_combinado['Media_3M_Display']],
                 textposition='outside'
             )
         )
 
-        # 6.2) Barras vermelhas hachuradas para Média 3M nos meses futuros (> mes_atual)
+        # Barras projetadas de Média 3M
         fig_media.add_trace(
             go.Bar(
                 x=df_combinado['mes_str'],
@@ -968,16 +887,47 @@ def main():
                 marker_color='red',
                 marker_pattern=dict(shape='/', size=6, solidity=0.5),
                 opacity=0.7,
+                customdata=df_combinado['hover_info'],
+                hovertemplate='%{customdata}<extra></extra>',
                 text=[f"R$ {v:,.2f}" if not np.isnan(v) else "" for v in df_combinado['Media_3M_Proj']],
                 textposition='outside',
                 textfont=dict(color='rgba(0, 0, 0, 0.79)')
             )
         )
 
-        # 6.3) Layout final (sem alterações)
+        # Linha da média anual
+        fig_media.add_trace(
+            go.Scatter(
+                x=all_months,
+                y=[media_anual] * 12,
+                mode='lines',
+                name='Média Anual',
+                line=dict(color='black', dash='dash'),
+                hovertemplate=f'Média Anual: R$ {media_anual:,.2f}<extra></extra>'
+            )
+        )
+
+        # ------------------ ANOTAÇÃO DO VALOR DA MÉDIA ------------------
+        # Posiciona o texto no último mês (all_months[-1]) exatamente em y=media_anual
+        fig_media.add_annotation(
+            x=all_months[-1],               # mês mais à direita, ex: "12"
+            y=media_anual,                  # valor exato da média
+            text=f"R$ {media_anual:,.2f}",  # formata como R$ 12.345,67
+            showarrow=True,                 # desenha uma flechinha apontando para o ponto
+            arrowhead=2,                    # estilo da flecha
+            ax=0,                           # deslocamento horizontal do texto (0 → alinhado em x)
+            ay=-20,                         # deslocamento vertical (ajusta para ficar acima da linha)
+            font=dict(size=12, color="black"),
+            bgcolor="rgba(255,255,255,0.8)",# fundo semitransparente para destacar o texto
+            bordercolor="black",
+            borderwidth=1
+        )
+        # ---------------------------------------------------------------
+
+
         fig_media.update_layout(
             barmode='overlay',
-            title_text="Comissão Mensal e Média Trimestral (com Projeções)",
+            title_text="Comissão Mensal e Média Trimestral (com Projeções e Linha Anual)",
             xaxis_title="Mês",
             yaxis_title="Valor (R$)",
             yaxis_tickformat=",.2f",
@@ -986,10 +936,6 @@ def main():
         )
 
         st.plotly_chart(fig_media, use_container_width=True)
-
-
-
-
 
         # -------------------------------------------------------
         #  Tabelas de Valor por KG (por SKU por Distribuidor)
