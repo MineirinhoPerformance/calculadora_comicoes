@@ -4,6 +4,7 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+from datetime import datetime
 
 # -------------------------------------------------------
 # Configurar a página (primeiro comando do Streamlit)
@@ -180,44 +181,44 @@ def calcular_comissoes_mensais(
         ).fillna({'meta_kg_mes': 0.0})
         df_merge.rename(columns={'meta_kg_mes': 'meta_kg'}, inplace=True)
 
-        # 6) Cálculo das faixas Kg_T1, Kg_T2, Kg_T3
-        def calcular_faixas(row):
+        # 6) Cálculo das comissões com penalização
+        def calcular_coms(row):
             total = row['Total_Kg_Mes']
             prev  = row['Total_Kg_Ant']
             meta  = row['meta_kg']
-            if prev >= meta:
-                kg_t1 = min(total, prev)
-                kg_t2 = 0
-                kg_t3 = max(total - prev, 0)
+            price = row['Preco_Kg_Mes']
+            com1 = com2 = com3 = 0.0
+
+            if total < prev:
+                # Penalização por cada kg abaixo do ano anterior
+                diff = prev - total
+                com1 = - diff * price * (pct1 / 100)
             else:
-                if total <= prev:
-                    kg_t1 = total
-                    kg_t2 = 0
-                    kg_t3 = 0
+                # total >= prev → sem penalização; calcula T2/T3
+                if prev < meta:
+                    vol_t2 = min(total, meta) - prev
+                    if vol_t2 > 0:
+                        com2 = vol_t2 * price * (pct2 / 100)
+                    if total > meta:
+                        vol_t3 = total - meta
+                        com3 = vol_t3 * price * (pct3 / 100)
                 else:
-                    kg_t1 = prev
-                    kg_t2 = min(total - prev, max(meta - prev, 0))
-                    kg_t3 = max(total - meta, 0)
-            return pd.Series({'Kg_T1': kg_t1, 'Kg_T2': kg_t2, 'Kg_T3': kg_t3})
+                    # caso prev ≥ meta, só T3 para o excedente sobre prev
+                    if total > prev:
+                        vol_t3 = total - prev
+                        com3 = vol_t3 * price * (pct3 / 100)
+
+            return pd.Series({'Com_T1': com1, 'Com_T2': com2, 'Com_T3': com3})
 
         if df_merge.empty:
-            df_merge[['Kg_T1', 'Kg_T2', 'Kg_T3']] = 0, 0, 0
+            df_merge[['Com_T1', 'Com_T2', 'Com_T3']] = 0.0, 0.0, 0.0
         else:
-            faixas = df_merge.apply(calcular_faixas, axis=1)
-            faixas.columns = [c.strip() for c in faixas.columns]
-            df_merge[['Kg_T1', 'Kg_T2', 'Kg_T3']] = faixas[['Kg_T1', 'Kg_T2', 'Kg_T3']]
+            comps = df_merge.apply(calcular_coms, axis=1)
+            df_merge[['Com_T1', 'Com_T2', 'Com_T3']] = comps[['Com_T1', 'Com_T2', 'Com_T3']]
 
-        # 7) Valores e comissões
-        df_merge['Val_T1'] = df_merge['Kg_T1'] * df_merge['Preco_Kg_Mes']
-        df_merge['Val_T2'] = df_merge['Kg_T2'] * df_merge['Preco_Kg_Mes']
-        df_merge['Val_T3'] = df_merge['Kg_T3'] * df_merge['Preco_Kg_Mes']
-
-        df_merge['Com_T1'] = df_merge['Val_T1'] * (pct1 / 100)
-        df_merge['Com_T2'] = df_merge['Val_T2'] * (pct2 / 100)
-        df_merge['Com_T3'] = df_merge['Val_T3'] * (pct3 / 100)
         df_merge['Comissao_R$'] = df_merge['Com_T1'] + df_merge['Com_T2'] + df_merge['Com_T3']
 
-        # 8) Agrupa a comissão total por distribuidor
+        # 7) Agrupa a comissão total por distribuidor (número de passo ajustado)
         df_sum = (
             df_merge
             .groupby('nome_distribuidor', as_index=False)
@@ -225,6 +226,7 @@ def calcular_comissoes_mensais(
         )
         df_sum['mes'] = mes
         resultados.append(df_sum)
+
 
     if resultados:
         df_annual = pd.concat(resultados, ignore_index=True)
@@ -300,9 +302,9 @@ def main():
 
         st.markdown("---")
         st.subheader("⚙️ Configuração de Comissões")
-        pct1 = st.number_input("% Até volume do ano anterior", value=2.000, format="%.3f", step=0.001)
-        pct2 = st.number_input("% Volume entre ano anterior e meta", value=4.000, format="%.3f", step=0.001)
-        pct3 = st.number_input("% Acima da meta", value=6.000, format="%.3f", step=0.001)
+        pct1 = st.number_input("% Até volume do ano anterior (Penalização)", value=1.000, format="%.3f", step=0.001)
+        pct2 = st.number_input("% Volume entre ano anterior e meta", value=1.000, format="%.3f", step=0.001)
+        pct3 = st.number_input("% Acima da meta", value=2.000, format="%.3f", step=0.001)
         st.markdown("---")
 
         btn_calcular = st.form_submit_button("🔍 Calcular")
@@ -387,40 +389,42 @@ def main():
             ).fillna({'meta_kg_mes':0.0})
             df_merge.rename(columns={'meta_kg_mes':'meta_kg'}, inplace=True)
 
-            def calcular_faixas(row):
+            # 6) Cálculo das comissões em T1/T2/T3 com penalização
+            def calcular_coms(row):
                 total = row['Total_Kg_Mes']
                 prev  = row['Total_Kg_Ant']
                 meta  = row['meta_kg']
-                if prev >= meta:
-                    kg_t1 = min(total, prev)
-                    kg_t2 = 0
-                    kg_t3 = max(total - prev, 0)
+                price = row['Preco_Kg_Mes']
+                com1 = com2 = com3 = 0.0
+
+                if total < prev:
+                    # Penalização por kg a menos que o ano anterior
+                    diff = prev - total
+                    com1 = - diff * price * (pct1 / 100)
                 else:
-                    if total <= prev:
-                        kg_t1 = total
-                        kg_t2 = 0
-                        kg_t3 = 0
+                    # total >= prev: sem penalização, calcula T2/T3
+                    if prev < meta:
+                        vol_t2 = min(total, meta) - prev
+                        if vol_t2 > 0:
+                            com2 = vol_t2 * price * (pct2 / 100)
+                        if total > meta:
+                            vol_t3 = total - meta
+                            com3 = vol_t3 * price * (pct3 / 100)
                     else:
-                        kg_t1 = prev
-                        kg_t2 = min(total - prev, max(meta - prev, 0))
-                        kg_t3 = max(total - meta, 0)
-                return pd.Series({'Kg_T1':kg_t1,'Kg_T2':kg_t2,'Kg_T3':kg_t3})
+                        if total > prev:
+                            vol_t3 = total - prev
+                            com3 = vol_t3 * price * (pct3 / 100)
+
+                return pd.Series({'Com_T1': com1, 'Com_T2': com2, 'Com_T3': com3})
 
             if df_merge.empty:
-                df_merge[['Kg_T1','Kg_T2','Kg_T3']] = 0,0,0
+                df_merge[['Com_T1','Com_T2','Com_T3']] = 0.0, 0.0, 0.0
             else:
-                faixas = df_merge.apply(calcular_faixas, axis=1)
-                faixas.columns = [c.strip() for c in faixas.columns]
-                df_merge[['Kg_T1','Kg_T2','Kg_T3']] = faixas[['Kg_T1','Kg_T2','Kg_T3']]
+                comps = df_merge.apply(calcular_coms, axis=1)
+                df_merge[['Com_T1','Com_T2','Com_T3']] = comps[['Com_T1','Com_T2','Com_T3']]
 
-            df_merge['Val_T1'] = df_merge['Kg_T1'] * df_merge['Preco_Kg_Mes']
-            df_merge['Val_T2'] = df_merge['Kg_T2'] * df_merge['Preco_Kg_Mes']
-            df_merge['Val_T3'] = df_merge['Kg_T3'] * df_merge['Preco_Kg_Mes']
-
-            df_merge['Com_T1'] = df_merge['Val_T1'] * (pct1/100)
-            df_merge['Com_T2'] = df_merge['Val_T2'] * (pct2/100)
-            df_merge['Com_T3'] = df_merge['Val_T3'] * (pct3/100)
             df_merge['Comissao_R$'] = df_merge['Com_T1'] + df_merge['Com_T2'] + df_merge['Com_T3']
+
 
             df_display = df_merge.copy()
             df_display['Distribuidor'] = df_display['nome_distribuidor']
@@ -429,30 +433,37 @@ def main():
             df_display['Meta Kg (mês)']   = df_display['meta_kg'].apply(lambda x: f"{x:,.0f}")
             df_display['Kg Mês']          = df_display['Total_Kg_Mes'].apply(lambda x: f"{x:,.0f}")
             df_display['Δ Kg']            = df_display['Delta_Kg'].apply(lambda x: f"{x:,.0f}")
-            df_display['Kg Até Ano Anterior']    = df_display['Kg_T1'].apply(lambda x: f"{x:,.0f}")
-            df_display['Kg Entre Ano Ant. e Meta'] = df_display.apply(
-                lambda r: f"{max(r['meta_kg'] - r['Total_Kg_Ant'], 0):,.0f}", axis=1
-            )
-            df_display['Kg Acima da Meta']    = df_display['Kg_T3'].apply(lambda x: f"{x:,.0f}")
-            df_display['Preço/kg Mês (R$)']   = df_display['Preco_Kg_Mes'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Valor Até Ano Anterior (R$)'] = df_display['Val_T1'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Valor Faixa Meta (R$)']       = df_display['Val_T2'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Valor Acima Meta (R$)']       = df_display['Val_T3'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Comissão T1 (R$)'] = df_display['Com_T1'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Comissão T2 (R$)'] = df_display['Com_T2'].apply(lambda x: f"R$ {x:,.2f}")
-            df_display['Comissão T3 (R$)'] = df_display['Com_T3'].apply(lambda x: f"R$ {x:,.2f}")
+            # Exibir apenas colunas essenciais agora que Kg_T1/T2/T3 e Val_T1/T2/T3 não existem:
+            df_display['Penalização (R$)']   = df_display['Com_T1'].apply(lambda x: f"R$ {x:,.2f}")
+            df_display['Comissão T2 (R$)']   = df_display['Com_T2'].apply(lambda x: f"R$ {x:,.2f}")
+            df_display['Comissão T3 (R$)']   = df_display['Com_T3'].apply(lambda x: f"R$ {x:,.2f}")
             df_display['Comissão Total (R$)'] = df_display['Comissao_R$'].apply(lambda x: f"R$ {x:,.2f}")
+            df_display['Preço/kg Mês (R$)']  = df_display['Preco_Kg_Mes'].apply(lambda x: f"R$ {x:,.2f}")
+            # Caso queira exibir “Kg até Ano Anterior” (apenas para referência, sem impactar cálculo):
+            df_display['Volume Até Ano Anterior (Kg)'] = df_display.apply(
+                lambda r: f"{min(r['Total_Kg_Mes'], r['Total_Kg_Ant']):,.0f}", axis=1
+            )
+
 
             df_display = df_display[
                 [
-                    'Distribuidor','Produto','Kg Ano Anterior','Meta Kg (mês)','Kg Mês','Δ Kg',
-                    'Kg Entre Ano Ant. e Meta','Kg Até Ano Anterior','Kg Acima da Meta',
-                    'Preço/kg Mês (R$)','Valor Até Ano Anterior (R$)',
-                    'Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
-                    'Comissão T1 (R$)','Comissão T2 (R$)',
-                    'Comissão T3 (R$)','Comissão Total (R$)'
+                    'Distribuidor',
+                    'Produto',
+                    'Kg Ano Anterior',
+                    'Meta Kg (mês)',
+                    'Kg Mês',
+                    'Δ Kg',
+                    # Remova ou comente a linha abaixo se não criou essa coluna:
+                    'Volume Até Ano Anterior (Kg)',
+                    'Preço/kg Mês (R$)',
+                    'Penalização (R$)',
+                    'Comissão T2 (R$)',
+                    'Comissão T3 (R$)',
+                    'Comissão Total (R$)'
                 ]
             ]
+
+
 
         if df_display.empty:
             st.warning("❗ Nenhum dado encontrado para os filtros selecionados.")
@@ -462,22 +473,27 @@ def main():
 
             st.markdown("#### 📝 Legenda das Colunas (Mês Selecionado)")
             st.markdown("""
-            - **Meta Kg (mês)**: soma das metas diárias (CSV ou Excel) para aquele distribuidor/sku no mês selecionado, convertida para inteiro.  
-            - **Kg Ano Anterior**: soma de `total kg` no mesmo mês do ano anterior.  
-            - **Kg Mês**: soma de `total kg` para o mês selecionado.  
-            - **Δ Kg**: diferença entre `Kg Mês` e `Kg Ano Anterior`.  
-            - **Kg Até Ano Anterior (Kg_T1)**: volume do mês que coincide com o volume até o ano anterior (min(total, prev)).  
-            - **Kg Entre Ano Ant. e Meta**: `max(meta_kg – Total_Kg_Ant, 0)` (volume em que se aplica faixa T2).  
-            - **Kg Acima da Meta (Kg_T3)**: volume acima da meta.  
-            - **Preço/kg Mês (R$)**: `Faturamento_Mes / Kg Mês`.  
-            - **Valor Até Ano Anterior (R$)**: `Kg_T1 * Preço/kg Mês`.  
-            - **Valor Faixa Meta (R$)**: `Kg_T2 * Preço/kg Mês`.  
-            - **Valor Acima Meta (R$)**: `Kg_T3 * Preço/kg Mês`.  
-            - **Comissão T1 (R$)**: `Valor Até Ano Anterior * (pct1/100)`.  
-            - **Comissão T2 (R$)**: `Valor Faixa Meta * (pct2/100)`.  
-            - **Comissão T3 (R$)**: `Valor Acima Meta * (pct3/100)`.  
-            - **Comissão Total (R$)**: soma de todas as faixas.
+            - **Meta Kg (mês)**: soma de todas as metas diárias para o distribuidor/sku no mês selecionado, arredondada para inteiro.  
+            - **Kg Ano Anterior**: total de quilos vendidos no mesmo mês do ano anterior.  
+            - **Kg Mês**: total de quilos vendidos no mês selecionado deste ano.  
+            - **Δ Kg**: diferença entre `Kg Faturados este Mês` e `Kg Mês/Ano Anterior`.  
+            - **Volume Até Ano Anterior (Kg)**: Mostra quantos quilos deste mês equivalem ao ano anterior.  
+            - **Penalização (R$)**:  
+            - Se `Kg Mês < Kg Ano Anterior`, esse valor é calculado como  
+                `(Kg Ano Anterior – Kg Mês) × Preço/kg Mês × (% Penalização)`, sempre aparece como número **negativo**.  
+            - Caso contrário, vale **R$ 0,00**.  
+            - **Comissão T2 (R$)**:  
+            - Se `Kg Mês > Kg Ano Anterior` **e** `Kg Ano Anterior < Meta Kg`, então  
+                `Volume na Faixa T2 = (Meta Kg - Kg Mês) - Kg Ano Anterior`,  
+                e a comissão é `(Volume na Faixa T2) × Preço/kg Mês × (% T2)`.  
+            - Em todos os outros casos, vale **R$ 0,00**.  
+            - **Comissão T3 (R$)**:  
+            - Se `Kg Mês > Meta Kg`, então `Volume na Faixa T3 = Kg Mês – Meta Kg`,  
+                e a comissão é `(Volume na Faixa T3) × Preço/kg Mês × (% T3)`.  
+            - Em todos os outros casos, vale **R$ 0,00**.  
+            - Comissão Total (R$):  Penalização + Comissão T2 + Comissão T3.  
             """)
+
 
                 # -------------------------------------------------------
         # Totais Consolidados (Mês Selecionado)
@@ -485,35 +501,30 @@ def main():
         st.markdown("---")
         st.markdown("**Totais Consolidados (Mês Selecionado)**")
 
-        # 1) Agrupa totais, somando T1, T2, T3, etc.
+        # 1) Agrupa totais, somando apenas as colunas que existem (Com_T1, Com_T2, Com_T3)
         totais_merge = (
             df_merge
             .groupby('nome_distribuidor', as_index=False)
             .agg(
-                Total_Kg_Ant=('Total_Kg_Ant','sum'),
-                Total_Kg_Mes=('Total_Kg_Mes','sum'),
-                Sum_Meta_Kg=('meta_kg','sum'),
-                Total_Fat_Mes=('Faturamento_Mes','sum'),
-                Kg_T1_Total=('Kg_T1','sum'),
-                Kg_T2_Total=('Kg_T2','sum'),
-                Kg_T3_Total=('Kg_T3','sum'),
-                Val_T1_Total=('Val_T1','sum'),
-                Val_T2_Total=('Val_T2','sum'),
-                Val_T3_Total=('Val_T3','sum'),
-                Com_T1_Total=('Com_T1','sum'),
-                Com_T2_Total=('Com_T2','sum'),
-                Com_T3_Total=('Com_T3','sum'),
-                Comissao_Total=('Comissao_R$','sum')
+                Total_Kg_Ant=('Total_Kg_Ant', 'sum'),
+                Total_Kg_Mes=('Total_Kg_Mes', 'sum'),
+                Sum_Meta_Kg=('meta_kg', 'sum'),
+                Total_Fat_Mes=('Faturamento_Mes', 'sum'),
+                # Somando apenas as colunas de comissão (T1/T2/T3) que existem
+                Com_T1_Total=('Com_T1', 'sum'),
+                Com_T2_Total=('Com_T2', 'sum'),
+                Com_T3_Total=('Com_T3', 'sum'),
+                Comissao_Total=('Comissao_R$', 'sum')
             )
-            .rename(columns={'nome_distribuidor':'Distribuidor'})
+            .rename(columns={'nome_distribuidor': 'Distribuidor'})
         )
 
         # 2) Calcular Δ Kg total por distribuidor
         totais_merge['Delta_Kg_Total'] = totais_merge['Total_Kg_Mes'] - totais_merge['Total_Kg_Ant']
 
-        # 3) Preço médio (já existente)
+        # 3) Preço médio por kg
         totais_merge['Preco_Medio_Kg'] = totais_merge.apply(
-            lambda r: (r['Total_Fat_Mes']/r['Total_Kg_Mes']) if r['Total_Kg_Mes']>0 else 0,
+            lambda r: (r['Total_Fat_Mes'] / r['Total_Kg_Mes']) if r['Total_Kg_Mes'] > 0 else 0,
             axis=1
         )
 
@@ -523,39 +534,40 @@ def main():
         totais_merge['Δ Kg']            = totais_merge['Delta_Kg_Total'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Meta Kg (mês)']   = totais_merge['Sum_Meta_Kg'].apply(lambda x: f"{x:,.0f}")
         totais_merge['Preço Médio (R$/Kg)'] = totais_merge['Preco_Medio_Kg'].apply(lambda x: f"R$ {x:,.2f}")
-        totais_merge['Kg Entre Ano Ant. e Meta'] = totais_merge.apply(
-            lambda r: f"{max(r['Sum_Meta_Kg']-r['Total_Kg_Ant'],0):,.0f}", axis=1
-        )
-        totais_merge['Kg Até Ano Anterior']    = totais_merge['Kg_T1_Total'].apply(lambda x: f"{x:,.0f}")
-        totais_merge['Kg Acima da Meta']       = totais_merge['Kg_T3_Total'].apply(lambda x: f"{x:,.0f}")
-        totais_merge['Valor Até Ano Anterior (R$)'] = totais_merge['Val_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
-        totais_merge['Valor Faixa Meta (R$)']       = totais_merge['Val_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
-        totais_merge['Valor Acima Meta (R$)']       = totais_merge['Val_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
-        totais_merge['Comissão T1 (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
+        # Penalização agregada (T1)
+        totais_merge['Penalização (R$)'] = totais_merge['Com_T1_Total'].apply(lambda x: f"R$ {x:,.2f}")
+        # Comissão da faixa T2 agregada
         totais_merge['Comissão T2 (R$)'] = totais_merge['Com_T2_Total'].apply(lambda x: f"R$ {x:,.2f}")
+        # Comissão da faixa T3 agregada
         totais_merge['Comissão T3 (R$)'] = totais_merge['Com_T3_Total'].apply(lambda x: f"R$ {x:,.2f}")
+        # Comissão total agregada
         totais_merge['Comissão Total (R$)'] = totais_merge['Comissao_Total'].apply(lambda x: f"R$ {x:,.2f}")
 
-        # 5) Selecionar colunas para exibir em tabela
+        # 5) Selecionar colunas para exibir em tabela (somente as que existem)
         totais_exib = totais_merge[
             [
                 'Distribuidor',
-                'Kg Ano Anterior','Kg Mês','Δ Kg','Meta Kg (mês)','Kg Entre Ano Ant. e Meta',
-                'Preço Médio (R$/Kg)','Kg Até Ano Anterior','Kg Acima da Meta',
-                'Valor Até Ano Anterior (R$)','Valor Faixa Meta (R$)','Valor Acima Meta (R$)',
-                'Comissão T1 (R$)','Comissão T2 (R$)','Comissão T3 (R$)','Comissão Total (R$)'
+                'Kg Ano Anterior',
+                'Kg Mês',
+                'Δ Kg',
+                'Meta Kg (mês)',
+                'Preço Médio (R$/Kg)',
+                'Penalização (R$)',
+                'Comissão T2 (R$)',
+                'Comissão T3 (R$)',
+                'Comissão Total (R$)'
             ]
         ]
         st.write(totais_exib)
 
-        # 6) Cálculo dos totais gerais (agregado de todas as linhas)
-        total_kg_ant_all    = totais_merge['Total_Kg_Ant'].sum()
-        total_kg_mes_all    = totais_merge['Total_Kg_Mes'].sum()
-        total_delta_kg_all  = totais_merge['Delta_Kg_Total'].sum()
-        total_meta_kg_all   = totais_merge['Sum_Meta_Kg'].sum()
-        total_comissao_all  = totais_merge['Comissao_Total'].sum()
+        # 6) Cálculo dos totais gerais (soma de todas as linhas, para os cartões de métrica)
+        total_kg_ant_all   = totais_merge['Total_Kg_Ant'].sum()
+        total_kg_mes_all   = totais_merge['Total_Kg_Mes'].sum()
+        total_delta_kg_all = totais_merge['Delta_Kg_Total'].sum()
+        total_meta_kg_all  = totais_merge['Sum_Meta_Kg'].sum()
+        total_comissao_all = totais_merge['Comissao_Total'].sum()
 
-        # 7) Exibir métricas: agora com 5 colunas (incluindo Δ Kg)
+        # 7) Exibir métricas
         col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Kg Ano Anterior (Total)", f"{total_kg_ant_all:,.0f}")
         col2.metric("Kg Mês (Total)", f"{total_kg_mes_all:,.0f}")
@@ -717,29 +729,27 @@ def main():
                     meta = row['meta_kg_mes']
                     preco = row['Preco_Kg_Ant']
 
-                    # Assume faturamento futuro igual à meta
-                    if prev >= meta:
-                        kg_t1 = meta
-                        kg_t2 = 0
-                        kg_t3 = 0
+                    com1 = com2 = com3 = 0.0
+
+                    if meta < prev:
+                        # Meta menor que o ano anterior → aplica penalização T1 negativa
+                        diff = prev - meta
+                        com1 = - diff * preco * (pct1 / 100)
+                    elif meta == prev:
+                        # meta igual a prev → sem comissão nem penalização
+                        com1 = com2 = com3 = 0.0
                     else:
-                        kg_t1 = prev
-                        kg_t2 = meta - prev
-                        kg_t3 = 0
-
-                    val_t1 = kg_t1 * preco
-                    val_t2 = kg_t2 * preco
-                    val_t3 = kg_t3 * preco
-
-                    com_t1 = val_t1 * (pct1 / 100)
-                    com_t2 = val_t2 * (pct2 / 100)
-                    com_t3 = val_t3 * (pct3 / 100)
+                        # meta > prev → sem T1, calcula T2 até a meta; T3 permanece zero
+                        vol_t2 = meta - prev
+                        com2 = vol_t2 * preco * (pct2 / 100)
+                        com3 = 0.0
 
                     return pd.Series({
-                        'Com_Proj_T1': com_t1,
-                        'Com_Proj_T2': com_t2,
-                        'Com_Proj_T3': com_t3
+                        'Com_Proj_T1': com1,
+                        'Com_Proj_T2': com2,
+                        'Com_Proj_T3': com3
                     })
+
 
                 if not df_merge_proj.empty:
                     comps = df_merge_proj.apply(calcular_comissoes_proj_detalhado, axis=1)
@@ -944,7 +954,7 @@ def main():
         st.markdown("**Valor de Comissão por KG de cada SKU**")
 
         df_rate = df_merge[['nome_distribuidor','codigo_produto','Preco_Kg_Mes']].copy()
-        df_rate['Valor_por_Kg_T1'] = df_rate['Preco_Kg_Mes'] * (pct1/100)
+        df_rate['Penal_por_Kg'] = df_rate['Preco_Kg_Mes'] * (pct1/100)
         df_rate['Valor_por_Kg_T2'] = df_rate['Preco_Kg_Mes'] * (pct2/100)
         df_rate['Valor_por_Kg_T3'] = df_rate['Preco_Kg_Mes'] * (pct3/100)
 
@@ -959,15 +969,15 @@ def main():
 
             # Tabela T1
             with col_t1:
-                st.subheader(f"T1 – Até ano anterior ({pct1:.3f}%)")
-                df_t1 = df_dist[['codigo_produto','Valor_por_Kg_T1']].copy()
+                st.subheader(f"Penalização por Kg (-{pct1:.3f}%)")
+                df_t1 = df_dist[['codigo_produto','Penal_por_Kg']].copy()
                 df_t1.rename(columns={
-                    'codigo_produto':'SKU',
-                    'Valor_por_Kg_T1':f'R$/Kg T1 ({pct1:.3f}%)'
+                  'codigo_produto':'SKU',
+                   'Penal_por_Kg':f'R$/Kg Penalização -({pct1:.3f}%)'
                 }, inplace=True)
-                df_t1[f'R$/Kg T1 ({pct1:.3f}%)'] = df_t1[f'R$/Kg T1 ({pct1:.3f}%)'].apply(
-                    lambda x: f"R$ {x:,.3f}"
-                )
+                df_t1[f'R$/Kg Penalização -({pct1:.3f}%)'] = df_t1[f'R$/Kg Penalização -({pct1:.3f}%)'].apply(
+                   lambda x: f"- R$ {x:,.3f}"
+               )
                 st.dataframe(df_t1.reset_index(drop=True), use_container_width=True)
 
             # Tabela T2
@@ -995,6 +1005,201 @@ def main():
                     lambda x: f"R$ {x:,.3f}"
                 )
                 st.dataframe(df_t3.reset_index(drop=True), use_container_width=True)
+            
+        # -------------------------------------------------------
+        # --- Nova seção: Δ Kg por SKU em small multiples (Fora do loop de distribuidores)
+        # -------------------------------------------------------
+        def montar_delta_por_mes(df_fatur, df_meta_mensal, selected_dist, selected_produtos, selected_ano):
+            """
+            Retorna um DataFrame com as colunas:
+            - mes (1 a 12)
+            - nome_distribuidor
+            - codigo_produto
+            - Delta_Kg (Total_Kg_Mes - Total_Kg_Ant)
+            """
+            lista = []
+            for mes in range(1, 13):
+                df_curr = df_fatur[
+                    (df_fatur['nome_distribuidor'].isin(selected_dist)) &
+                    (df_fatur['ano'] == selected_ano) &
+                    (df_fatur['mes'] == mes)
+                ].copy()
+                if selected_produtos:
+                    df_curr = df_curr[df_curr['codigo_produto'].isin(selected_produtos)]
+
+                agrup = ['nome_distribuidor', 'codigo_produto']
+                df_current = (
+                    df_curr
+                    .groupby(agrup, as_index=False)
+                    .agg(Total_Kg_Mes=('total kg', 'sum'))
+                )
+
+                df_prev = df_fatur[
+                    (df_fatur['nome_distribuidor'].isin(selected_dist)) &
+                    (df_fatur['ano'] == (selected_ano - 1)) &
+                    (df_fatur['mes'] == mes)
+                ].copy()
+                if selected_produtos:
+                    df_prev = df_prev[df_prev['codigo_produto'].isin(selected_produtos)]
+                df_prev_group = (
+                    df_prev
+                    .groupby(agrup, as_index=False)
+                    .agg(Total_Kg_Ant=('total kg', 'sum'))
+                )
+
+                df_merge = pd.merge(
+                    df_current, df_prev_group,
+                    on=['nome_distribuidor', 'codigo_produto'],
+                    how='left'
+                ).fillna({'Total_Kg_Ant': 0})
+                df_merge['Delta_Kg'] = df_merge['Total_Kg_Mes'] - df_merge['Total_Kg_Ant']
+
+                df_merge = df_merge[['nome_distribuidor', 'codigo_produto', 'Delta_Kg']].copy()
+                df_merge['mes'] = mes
+                lista.append(df_merge)
+
+            if lista:
+                return pd.concat(lista, ignore_index=True)
+            else:
+                return pd.DataFrame(columns=['mes', 'nome_distribuidor', 'codigo_produto', 'Delta_Kg'])
+
+
+        # 2) Vamos calcular e desenhar os “small multiples” UMA ÚNICA VEZ, após o loop de distribuidores
+        df_delta = montar_delta_por_mes(
+            df_fatur=df_fatur,
+            df_meta_mensal=df_meta_mensal,
+            selected_dist=selected_dist,
+            selected_produtos=selected_produtos,
+            selected_ano=selected_ano
+        )
+
+        if not df_delta.empty:
+            st.markdown("---")
+            st.markdown("### 📈 Δ Kg por SKU (1–12)")
+
+            skus_para_plotar = (
+                selected_produtos 
+                if selected_produtos 
+                else sorted(df_delta['codigo_produto'].unique())
+            )
+
+            hoje = datetime.now()
+            ano_atual = hoje.year
+            mes_atual = hoje.month
+
+            color_sequence = [
+                "#FF5733","#33FF57","#3357FF","#FF33A1","#A133FF",
+                "#33FFF5","#FF8C33","#8CFF33","#338CFF","#FF338C",
+                "#33A1FF","#A1FF33","#FF3333","#33FF33","#3333FF",
+                "#FF33FF","#33FFFF","#FFFF33","#D35400","#27AE60",
+                "#2980B9","#8E44AD","#16A085","#F39C12","#C0392B"
+            ]
+            dist_list = sorted(selected_dist)
+            dist_colors = { d: color_sequence[i % len(color_sequence)] for i, d in enumerate(dist_list) }
+
+            cols = st.columns(4)
+            col_index = 0
+
+            for i, sku in enumerate(skus_para_plotar):
+                df_sku = df_delta[df_delta['codigo_produto'] == sku].copy()
+                if df_sku.empty:
+                    continue
+
+                fig_sku = go.Figure()
+                global_y = []
+
+                # === 1) loop que adiciona as traces “reais” de cada distribuidor ===
+                for distrib in dist_list:
+                    df_dist = df_sku[df_sku['nome_distribuidor'] == distrib].copy()
+                    meses_completos = pd.DataFrame({'mes': list(range(1,13))})
+                    df_dist = pd.merge(
+                        meses_completos,
+                        df_dist[['mes', 'Delta_Kg']],
+                        on='mes', how='left'
+                    ).fillna({'Delta_Kg': 0})
+
+                    x_todos = df_dist['mes'].tolist()
+                    y_todos = df_dist['Delta_Kg'].tolist()
+                    global_y.extend(y_todos)
+
+                    # montando apenas a trace sólida (Δ Kg “real”)
+                    x_passados = [
+                        m for m in x_todos
+                        if not (selected_ano == ano_atual and m > mes_atual)
+                    ]
+                    y_passados = [
+                        y for (m, y) in zip(x_todos, y_todos)
+                        if not (selected_ano == ano_atual and m > mes_atual)
+                    ]
+                    if x_passados:
+                        fig_sku.add_trace(
+                            go.Scatter(
+                                x=x_passados,
+                                y=y_passados,
+                                mode='lines+markers',
+                                name=f"{distrib} (Real)",
+                                line=dict(color=dist_colors[distrib], dash='solid'),
+                                showlegend=False
+                            )
+                        )
+
+                    # (projeção pontilhada já removida/comentada conforme pedido)
+
+                # === 2) aqui que você insere o trecho de “shapes” para colorir o fundo ===
+
+                # calcula limites para saber até onde pinta azul ou vermelho
+                y_max = max(max(global_y), 0)
+                y_min = min(min(global_y), 0)
+
+                shapes = [
+                    # área acima de y=0: azul suave
+                    dict(
+                        type="rect",
+                        xref="paper", x0=0, x1=1,
+                        yref="y",   y0=0, y1=y_max,
+                        fillcolor="rgba(0, 0, 255, 0.02)",  # lightblue transparente
+                        line=dict(width=0),
+                        layer="below"
+                    ),
+                    # área abaixo de y=0: vermelho/rosa suave
+                    dict(
+                        type="rect",
+                        xref="paper", x0=0, x1=1,
+                        yref="y",   y0=y_min, y1=0,
+                        fillcolor="rgba(255, 0, 0, 0.08)",  # lightpink transparente
+                        line=dict(width=0),
+                        layer="below"
+                    )
+                ]
+
+                # === 3) atualização do layout, incluindo os shapes que acabamos de definir ===
+                fig_sku.update_layout(
+                    shapes=shapes,
+                    title_text=f"SKU {sku} – Δ Kg por Distribuidor",
+                    xaxis=dict(title="Mês"),
+                    yaxis=dict(title="Δ Kg", tickformat=",.0f"),
+                    width=300,
+                    height=250,
+                    margin=dict(l=30, r=10, t=30, b=30)
+                )
+
+                # === 4) exibição no Streamlit ===
+                with cols[col_index]:
+                    st.plotly_chart(
+                        fig_sku,
+                        use_container_width=True,
+                        key=f"delta_{sku}_{i}"
+                    )
+                col_index = (col_index + 1) % 4
+
+
+        else:
+            st.markdown("---")
+            st.markdown("### 📈 Δ Kg por SKU (sem dados disponíveis)")    
+        # -------------------------------------------------------
+        # Fim da seção “Δ Kg por SKU”
+        # -------------------------------------------------------
+
 
     else:
         st.sidebar.info("1) Carregue a base de faturamento. 2) Carregue o arquivo de metas (CSV ou Excel). 3) Configure filtros e clique em ‘Calcular’.")
