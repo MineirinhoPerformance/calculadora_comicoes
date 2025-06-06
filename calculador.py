@@ -305,6 +305,17 @@ def main():
         pct1 = st.number_input("% Até volume do ano anterior (Penalização)", value=1.000, format="%.3f", step=0.001)
         pct2 = st.number_input("% Volume entre ano anterior e meta", value=1.000, format="%.3f", step=0.001)
         pct3 = st.number_input("% Acima da meta", value=2.000, format="%.3f", step=0.001)
+
+        st.markdown("---")
+        st.subheader("🎯 Comissão Extra por Cliente (T4)")
+        if df_fatur is not None:
+            clientes_unicos = sorted(df_fatur['codigo_cliente'].dropna().astype(str).unique())
+        else:
+            clientes_unicos = []
+        clientes_selecionados = st.multiselect("Clientes (Código)", clientes_unicos, help="Clientes para aplicar comissão extra")
+        pct4 = st.number_input("% Extra sobre total em KG (T4)", value=0.000, format="%.3f", step=0.001)
+
+
         st.markdown("---")
 
         btn_calcular = st.form_submit_button("🔍 Calcular")
@@ -425,6 +436,21 @@ def main():
 
             df_merge['Comissao_R$'] = df_merge['Com_T1'] + df_merge['Com_T2'] + df_merge['Com_T3']
 
+            # -------------------------------------------------------
+            # Cálculo da Comissão T4 – Extra por KG para clientes selecionados
+            # -------------------------------------------------------
+            if clientes_selecionados and pct4 > 0:
+                df_fat_t4 = df_curr[df_curr['codigo_cliente'].astype(str).isin(clientes_selecionados)].copy()
+                total_kg_t4 = df_fat_t4['total kg'].sum()
+                total_df_t4 = df_fat_t4['total df'].sum()
+                preco_medio_t4 = total_df_t4 / total_kg_t4 if total_kg_t4 > 0 else 0.0
+                comissao_t4 = total_kg_t4 * preco_medio_t4 * (pct4 / 100)
+            else:
+                total_kg_t4 = 0
+                preco_medio_t4 = 0
+                comissao_t4 = 0
+
+
 
             df_display = df_merge.copy()
             df_display['Distribuidor'] = df_display['nome_distribuidor']
@@ -495,7 +521,7 @@ def main():
             """)
 
 
-                # -------------------------------------------------------
+        # -------------------------------------------------------
         # Totais Consolidados (Mês Selecionado)
         # -------------------------------------------------------
         st.markdown("---")
@@ -559,6 +585,7 @@ def main():
             ]
         ]
         st.write(totais_exib)
+        st.markdown("---")
 
         # 6) Cálculo dos totais gerais (soma de todas as linhas, para os cartões de métrica)
         total_kg_ant_all   = totais_merge['Total_Kg_Ant'].sum()
@@ -574,6 +601,20 @@ def main():
         col3.metric("Δ Kg (Total)", f"{total_delta_kg_all:,.0f}")
         col4.metric("Meta Kg (Total)", f"{total_meta_kg_all:,.0f}")
         col5.metric("Comissão Total (R$)", f"R$ {total_comissao_all:,.2f}")
+
+        if comissao_t4 > 0:
+            st.markdown("---")
+            st.markdown("**💰 Comissão T4 – Extra por Clientes Selecionados**")
+            col_t4_1, col_t4_2, col_t4_3 = st.columns(3)
+            col_t4_1.metric("Total KG (Clientes)", f"{total_kg_t4:,.0f}")
+            col_t4_2.metric("Preço Médio (R$/Kg)", f"R$ {preco_medio_t4:,.2f}")
+            col_t4_3.metric("Comissão T4 (R$)", f"R$ {comissao_t4:,.2f}")
+
+            # Total geral com T4
+            st.markdown("---")
+            st.markdown("### 💵 Comissão Total + T4")
+            st.metric("Comissão Total com T4 (R$)", f"R$ {total_comissao_all + comissao_t4:,.2f}")
+
 
         # -------------------------------------------------------
         #  Definindo as cores para cada distribuidor ANTES de usar no gráfico
@@ -627,35 +668,133 @@ def main():
         dist_colors = { dist: color_sequence[i % len(color_sequence)] for i, dist in enumerate(selected_dist) }
 
         # -------------------------------------------------------
-        #  Gráfico de Comissões por Distribuidor (Mês Selecionado)
+        #  Gráfico de Comissões por Distribuidor (Mês Selecionado) – VERSÃO EMPILHADA COM T4 E ROTULOS MAIORES
         # -------------------------------------------------------
         st.markdown("---")
         st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
-        df_graf_mes = totais_merge[['Distribuidor','Comissao_Total']].copy()
-        df_graf_mes['Comissao_Num'] = totais_merge['Comissao_Total'].replace(r'[R\\$,]', '', regex=True).astype(float)
 
-        fig_mes = px.bar(
-            df_graf_mes,
-            x='Distribuidor',
-            y='Comissao_Num',
-            text='Comissao_Num',
-            color='Distribuidor',
-            color_discrete_map=dist_colors,
-            labels={'Comissao_Num':'Comissão (R$)'}
-        )
-        fig_mes.update_traces(
-            texttemplate='R$ %{text:,.2f}',
-            textposition='outside',
-            marker_line_width=0.5
-        )
+        # 1) Já temos totais_merge (com Com_T1_Total, Com_T2_Total, Com_T3_Total e Comissao_Total).
+        # Vamos extrair apenas o valor “base” (T1+T2+T3) para plotar.
+        df_base = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
+        df_base.rename(columns={'Comissao_Total': 'comissao_base'}, inplace=True)
+
+        # 2) Calcula T4 por distribuidor:
+        if clientes_selecionados and pct4 > 0:
+            df_t4 = df_curr[
+                df_curr['codigo_cliente'].astype(str).isin(clientes_selecionados)
+            ].copy()
+
+            df_t4_dist = (
+                df_t4
+                .groupby('nome_distribuidor', as_index=False)
+                .agg(total_kg_t4=('total kg', 'sum'),
+                    total_df_t4=('total df', 'sum'))
+            )
+            df_t4_dist['preco_medio_t4'] = df_t4_dist.apply(
+                lambda r: (r['total_df_t4'] / r['total_kg_t4']) if r['total_kg_t4'] > 0 else 0.0,
+                axis=1
+            )
+            df_t4_dist['comissao_t4'] = (
+                df_t4_dist['total_kg_t4'] * df_t4_dist['preco_medio_t4'] * (pct4 / 100)
+            )
+            df_t4_dist.rename(columns={'nome_distribuidor': 'Distribuidor'}, inplace=True)
+        else:
+            df_t4_dist = pd.DataFrame({
+                'Distribuidor': selected_dist,
+                'comissao_t4': [0.0] * len(selected_dist)
+            })
+
+        # 3) Junta “base” e T4 em um só DataFrame
+        df_plot = pd.merge(
+            df_base,
+            df_t4_dist[['Distribuidor', 'comissao_t4']],
+            on='Distribuidor',
+            how='left'
+        ).fillna({'comissao_t4': 0.0})
+
+        # 4) Monta as barras empilhadas (trace 1: base; trace 2: T4 hachurada)
+        fig_mes = go.Figure()
+
+        for dist in selected_dist:
+            color = dist_colors.get(dist, "#CCCCCC")
+            val_base = float(df_plot.loc[df_plot['Distribuidor'] == dist, 'comissao_base'].iloc[0])
+            val_t4   = float(df_plot.loc[df_plot['Distribuidor'] == dist, 'comissao_t4'].iloc[0])
+
+            # 4.1) Traço da comissão normal (T1+T2+T3) – texto interno maior
+            fig_mes.add_trace(
+                go.Bar(
+                    x=[dist],
+                    y=[val_base],
+                    name='Comissão Base',
+                    marker_color=color,
+                    text=[f"R$ {val_base:,.2f}"],
+                    textposition='inside',
+                    textfont=dict(
+                        size=14,           # aumenta tamanho do texto interno
+                        color="black",     # cor branca para contrastar
+                        family="Arial Black"
+                    ),
+                    hovertemplate=f"Base (T1+T2+T3): R$ {val_base:,.2f}<extra></extra>",
+                    showlegend=False
+                )
+            )
+
+            # 4.2) Se houver T4 (> 0), traço empilhado “hachurado” – texto interno maior
+            if val_t4 > 0:
+                fig_mes.add_trace(
+                    go.Bar(
+                        x=[dist],
+                        y=[val_t4],
+                        name='Comissão T4',
+                        marker_color=color,
+                        marker_pattern=dict(
+                            shape='/',  
+                            fgcolor=color,
+                            bgcolor='rgba(0,0,0,0)',
+                            size=8
+                        ),
+                        opacity=1.0,
+                        text=[f"R$ {val_t4:,.2f}"],
+                        textposition='inside',
+                        textfont=dict(
+                            size=14,          # aumenta tamanho do texto interno
+                            color="black",
+                            family="Arial Black"
+                        ),
+                        hovertemplate=f"T4 (Extra): R$ {val_t4:,.2f}<extra></extra>",
+                        showlegend=False
+                    )
+                )
+
+            # 4.3) Anotações de total (base + T4) acima de cada barra – fonte maior e em negrito
+            total_dist = val_base + val_t4
+            fig_mes.add_annotation(
+                x=dist,
+                y=total_dist,
+                text=f"Total: R$ {total_dist:,.2f}",
+                showarrow=False,
+                yshift=10,
+                font=dict(
+                    size=16,            # aumenta tamanho da anotação
+                    color="black",
+                    family="Arial Black",
+                    weight="bold"          # destaca em negrito
+                )
+            )
+
+        # 5) Layout final
         fig_mes.update_layout(
-            uniformtext_minsize=12, uniformtext_mode='hide',
+            barmode='stack',
+            title_text="Comissão por Distribuidor (Detalhado: Base + T4)",
+            xaxis_title="Distribuidor",
+            yaxis_title="Comissão (R$)",
             yaxis_tickformat=",.2f",
-            margin=dict(t=20,b=20,l=40,r=20),
-            xaxis_title="Distribuidor", yaxis_title="Comissão (R$)",
-            showlegend=False
+            margin=dict(t=30, b=40, l=40, r=20)
         )
+
+        # 6) Exibe no Streamlit
         st.plotly_chart(fig_mes, use_container_width=True)
+
 
 
         df_annual = calcular_comissoes_mensais(
