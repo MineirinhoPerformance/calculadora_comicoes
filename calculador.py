@@ -668,17 +668,16 @@ def main():
         dist_colors = { dist: color_sequence[i % len(color_sequence)] for i, dist in enumerate(selected_dist) }
 
         # -------------------------------------------------------
-        #  Gráfico de Comissões por Distribuidor (Mês Selecionado) – VERSÃO EMPILHADA COM T4 E ROTULOS MAIORES
+        #  Gráfico de Comissões por Distribuidor (Mês Selecionado) – HACHURA COM FUNDO BRANCO E RÓTULOS COM FUNDO
         # -------------------------------------------------------
         st.markdown("---")
         st.markdown("**Gráfico de Comissões por Distribuidor (Mês Selecionado)**")
 
-        # 1) Já temos totais_merge (com Com_T1_Total, Com_T2_Total, Com_T3_Total e Comissao_Total).
-        # Vamos extrair apenas o valor “base” (T1+T2+T3) para plotar.
+        # 1) Extrai “base” (T1+T2+T3) e renomeia
         df_base = totais_merge[['Distribuidor', 'Comissao_Total']].copy()
         df_base.rename(columns={'Comissao_Total': 'comissao_base'}, inplace=True)
 
-        # 2) Calcula T4 por distribuidor:
+        # 2) Calcula T4 por distribuidor
         if clientes_selecionados and pct4 > 0:
             df_t4 = df_curr[
                 df_curr['codigo_cliente'].astype(str).isin(clientes_selecionados)
@@ -688,7 +687,7 @@ def main():
                 df_t4
                 .groupby('nome_distribuidor', as_index=False)
                 .agg(total_kg_t4=('total kg', 'sum'),
-                    total_df_t4=('total df', 'sum'))
+                     total_df_t4=('total df', 'sum'))
             )
             df_t4_dist['preco_medio_t4'] = df_t4_dist.apply(
                 lambda r: (r['total_df_t4'] / r['total_kg_t4']) if r['total_kg_t4'] > 0 else 0.0,
@@ -704,7 +703,7 @@ def main():
                 'comissao_t4': [0.0] * len(selected_dist)
             })
 
-        # 3) Junta “base” e T4 em um só DataFrame
+        # 3) Mescla “base” e T4
         df_plot = pd.merge(
             df_base,
             df_t4_dist[['Distribuidor', 'comissao_t4']],
@@ -712,35 +711,32 @@ def main():
             how='left'
         ).fillna({'comissao_t4': 0.0})
 
-        # 4) Monta as barras empilhadas (trace 1: base; trace 2: T4 hachurada)
+        # 4) Constrói barras empilhadas
         fig_mes = go.Figure()
 
         for dist in selected_dist:
             color = dist_colors.get(dist, "#CCCCCC")
             val_base = float(df_plot.loc[df_plot['Distribuidor'] == dist, 'comissao_base'].iloc[0])
             val_t4   = float(df_plot.loc[df_plot['Distribuidor'] == dist, 'comissao_t4'].iloc[0])
+            total    = val_base + val_t4
 
-            # 4.1) Traço da comissão normal (T1+T2+T3) – texto interno maior
+            # 4.1) Traço “base” (sempre negativo ou zero), sem texto embutido — usaremos anotação com fundo
             fig_mes.add_trace(
                 go.Bar(
                     x=[dist],
                     y=[val_base],
                     name='Comissão Base',
                     marker_color=color,
-                    text=[f"R$ {val_base:,.2f}"],
-                    textposition='inside',
-                    textfont=dict(
-                        size=14,           # aumenta tamanho do texto interno
-                        color="black",     # cor branca para contrastar
-                        family="Arial Black"
-                    ),
                     hovertemplate=f"Base (T1+T2+T3): R$ {val_base:,.2f}<extra></extra>",
                     showlegend=False
                 )
             )
 
-            # 4.2) Se houver T4 (> 0), traço empilhado “hachurado” – texto interno maior
+            # 4.2) Traço “T4” (sempre positivo), posicionado sobre a “base”
             if val_t4 > 0:
+                # Se, mesmo somando T4, total for negativo => padrão '/'
+                # Caso contrário (total ≥ 0), use '\'
+                pattern_shape = "/" if total < 0 else "\\"
                 fig_mes.add_trace(
                     go.Bar(
                         x=[dist],
@@ -748,56 +744,132 @@ def main():
                         name='Comissão T4',
                         marker_color=color,
                         marker_pattern=dict(
-                            shape='/',  
+                            shape=pattern_shape,
                             fgcolor=color,
-                            bgcolor='rgba(0,0,0,0)',
+                            bgcolor="white",  # fundo branco em vez de transparente
                             size=8
-                        ),
-                        opacity=1.0,
-                        text=[f"R$ {val_t4:,.2f}"],
-                        textposition='inside',
-                        textfont=dict(
-                            size=14,          # aumenta tamanho do texto interno
-                            color="black",
-                            family="Arial Black"
                         ),
                         hovertemplate=f"T4 (Extra): R$ {val_t4:,.2f}<extra></extra>",
                         showlegend=False
                     )
                 )
 
-            # 4.3) Anotações de total (base + T4) acima de cada barra – fonte maior e em negrito
-            total_dist = val_base + val_t4
-            fig_mes.add_annotation(
-                x=dist,
-                y=total_dist,
-                text=f"Total: R$ {total_dist:,.2f}",
-                showarrow=False,
-                yshift=10,
-                font=dict(
-                    size=16,            # aumenta tamanho da anotação
-                    color="black",
-                    family="Arial Black",
-                    weight="bold"          # destaca em negrito
+            # 4.3) Anotação “Base” (valor absoluto) dentro do segmento negativo
+            if val_base < 0:
+                # Posicionamos no meio da barra “base”, em y = val_base/2
+                fig_mes.add_annotation(
+                    x=dist,
+                    y=val_base / 2,
+                    text=f"R$ {val_base:,.2f}",
+                    showarrow=False,
+                    font=dict(
+                        size=12,
+                        color="black",     # cor do texto
+                        family="Arial"
+                    ),
+                    bgcolor="white",       # fundo branco para destacar
+                    bordercolor="black",
+                    borderwidth=1,
+                    borderpad=2
                 )
-            )
 
-        # 5) Layout final
+            # 4.4) Anotação “T4” (valor) dentro do segmento hachurado
+            if val_t4 > 0:
+                # Posicionamos em y = val_base + val_t4/2
+                fig_mes.add_annotation(
+                    x=dist,
+                    y=val_base + (val_t4 / 2),
+                    text=f"R$ {val_t4:,.2f}",
+                    showarrow=False,
+                    font=dict(
+                        size=12,
+                        color="black",
+                        family="Arial"
+                    ),
+                    bgcolor="white",
+                    bordercolor="black",
+                    borderwidth=1,
+                    borderpad=2
+                )
+
+            # 4.5) Anotação “Total” (valor final) — se total < 0, fica dentro; se total ≥ 0, acima de zero
+            if total < 0:
+                # Dentro da área negativa, acima do segmento T4 (ou base, se T4=0)
+                base_y = val_base + (val_t4 if val_t4 > 0 else 0)
+                fig_mes.add_annotation(
+                    x=dist,
+                    y=base_y + (abs(total - base_y) / 2),
+                    text=f"Total: R$ {total:,.2f}",
+                    showarrow=False,
+                    font=dict(
+                        size=12,
+                        color="white",
+                        family="Arial",
+                        weight="bold"
+                    ),
+                    bgcolor="black",     # fundo escuro para contraste na área negativa
+                    bordercolor="white",
+                    borderwidth=1,
+                    borderpad=2
+                )
+            else:
+                # Acima de zero, dentro da área positiva
+                fig_mes.add_annotation(
+                    x=dist,
+                    y=total / 2,
+                    text=f"Total: R$ {total:,.2f}",
+                    showarrow=False,
+                    font=dict(
+                        size=12,
+                        color="black",
+                        family="Arial",
+                        weight="bold"
+                    ),
+                    bgcolor="lightgrey", # fundo claro para destaque
+                    bordercolor="black",
+                    borderwidth=1,
+                    borderpad=2
+                )
+
+        # 5) Layout geral
         fig_mes.update_layout(
             barmode='stack',
             title_text="Comissão por Distribuidor (Detalhado: Base + T4)",
-            xaxis_title="Distribuidor",
+            xaxis_title="",
             yaxis_title="Comissão (R$)",
             yaxis_tickformat=",.2f",
-            margin=dict(t=30, b=40, l=40, r=20)
+            margin=dict(t=30, b=60, l=40, r=20)
         )
 
-        # 6) Exibe no Streamlit
+        # 6) Remove rótulos padrão do eixo x
+        fig_mes.update_xaxes(
+            ticktext=[''] * len(selected_dist),
+            tickvals=selected_dist
+        )
+
+        # 7) Adiciona anotações de rótulo de categoria com fundo cinza
+        for dist in selected_dist:
+            fig_mes.add_annotation(
+                x=dist,
+                y=0,
+                text=dist,
+                showarrow=False,
+                yshift=-20,
+                xanchor="center",
+                font=dict(
+                    size=12,
+                    color="black"
+                ),
+                bgcolor="lightgrey"
+            )
+
+        # 8) Exibe no Streamlit com chave única
         st.plotly_chart(
             fig_mes,
             use_container_width=True,
             key="grafico_comissao_mes"
         )
+
 
 
 
