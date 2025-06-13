@@ -1281,7 +1281,7 @@ def main():
                    'Penal_por_Kg':f'R$/Kg Penalização -({pct1:.3f}%)'
                 }, inplace=True)
                 df_t1[f'R$/Kg Penalização -({pct1:.3f}%)'] = df_t1[f'R$/Kg Penalização -({pct1:.3f}%)'].apply(
-                   lambda x: f"- R$ {x:,.3f}"
+                   lambda x: f"- R$ {x:,.2f}"
                )
                 st.dataframe(df_t1.reset_index(drop=True), use_container_width=True)
 
@@ -1294,7 +1294,7 @@ def main():
                     'Valor_por_Kg_T2':f'R$/Kg T2 ({pct2:.3f}%)'
                 }, inplace=True)
                 df_t2[f'R$/Kg T2 ({pct2:.3f}%)'] = df_t2[f'R$/Kg T2 ({pct2:.3f}%)'].apply(
-                    lambda x: f"R$ {x:,.3f}"
+                    lambda x: f"R$ {x:,.2f}"
                 )
                 st.dataframe(df_t2.reset_index(drop=True), use_container_width=True)
 
@@ -1307,7 +1307,7 @@ def main():
                     'Valor_por_Kg_T3':f'R$/Kg T3 ({pct3:.3f}%)'
                 }, inplace=True)
                 df_t3[f'R$/Kg T3 ({pct3:.3f}%)'] = df_t3[f'R$/Kg T3 ({pct3:.3f}%)'].apply(
-                    lambda x: f"R$ {x:,.3f}"
+                    lambda x: f"R$ {x:,.2f}"
                 )
                 st.dataframe(df_t3.reset_index(drop=True), use_container_width=True)
             
